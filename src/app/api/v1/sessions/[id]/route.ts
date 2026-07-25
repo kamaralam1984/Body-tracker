@@ -1,11 +1,11 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { getStore } from "@/server/db/store";
+import { getPrisma } from "@/server/db/prisma";
 import { resolvePrincipal, requireScope, rateLimitResponseHeaders } from "@/server/http/principal";
 import { ok, errorResponse } from "@/server/http/respond";
 import { parseJsonBody } from "@/server/http/validate";
 import { writeAudit } from "@/server/http/audit";
-import { getOrgSession, touchSession } from "@/server/services/sessions-service";
+import { getOrgSession } from "@/server/services/sessions-service";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +19,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const principal = await resolvePrincipal(request);
     requireScope(principal, "sessions:read");
 
-    const session = getOrgSession(principal.orgId, id);
+    const session = await getOrgSession(principal.orgId, id);
 
     return ok(session, { headers: rateLimitResponseHeaders(principal) });
   } catch (error) {
@@ -34,10 +34,15 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     requireScope(principal, "sessions:write");
 
     const body = await parseJsonBody(request, patchSchema);
-    const session = getOrgSession(principal.orgId, id);
+    await getOrgSession(principal.orgId, id);
 
-    if (body.title !== undefined) session.title = body.title;
-    touchSession(session);
+    const prisma = await getPrisma();
+    const session = await prisma.trackingSession.update({
+      where: { id },
+      data: {
+        ...(body.title !== undefined ? { title: body.title } : {}),
+      },
+    });
 
     writeAudit({
       orgId: principal.orgId,
@@ -62,10 +67,11 @@ export async function DELETE(
     const principal = await resolvePrincipal(request);
     requireScope(principal, "sessions:write");
 
-    const session = getOrgSession(principal.orgId, id);
-    const store = getStore();
-    store.trackingSessions.delete(session.id);
-    store.trackingEvents.delete(session.id);
+    const session = await getOrgSession(principal.orgId, id);
+    const prisma = await getPrisma();
+    // Prisma's onDelete: Cascade on TrackingEvent.session handles deleting
+    // this session's events automatically.
+    await prisma.trackingSession.delete({ where: { id: session.id } });
 
     writeAudit({
       orgId: principal.orgId,

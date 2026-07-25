@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { getStore, newId, nowIso } from "@/server/db/store";
+import { getPrisma } from "@/server/db/prisma";
 import { hashPassword } from "@/server/auth/password";
 import { resolvePrincipal, requireScope, rateLimitResponseHeaders } from "@/server/http/principal";
 import { ok, errorResponse } from "@/server/http/respond";
@@ -10,7 +10,6 @@ import { paginate } from "@/server/http/pagination";
 import { forbidden, conflict } from "@/server/http/errors";
 import { writeAudit } from "@/server/http/audit";
 import { sanitizeUser } from "@/server/services/organizations-service";
-import type { Role, User } from "@/server/db/entities";
 
 export const dynamic = "force-dynamic";
 
@@ -36,11 +35,13 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     if (id !== principal.orgId) throw forbidden("Cannot access another organization");
 
     const query = parseQuery(request.nextUrl.searchParams, listQuerySchema);
-    const store = getStore();
-    const members = [...store.users.values()]
-      .filter((user) => user.orgId === id)
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-      .map(sanitizeUser);
+    const prisma = await getPrisma();
+    const members = (
+      await prisma.user.findMany({
+        where: { orgId: id },
+        orderBy: { createdAt: "asc" },
+      })
+    ).map(sanitizeUser);
 
     const page = paginate(members, query.cursor, query.limit);
 
@@ -62,25 +63,24 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     const body = await parseJsonBody(request, createSchema);
 
-    const store = getStore();
-    const existing = [...store.users.values()].find(
-      (user) => user.orgId === id && user.email.toLowerCase() === body.email.toLowerCase(),
-    );
+    const prisma = await getPrisma();
+    const existing = await prisma.user.findFirst({
+      where: { orgId: id, email: { equals: body.email, mode: "insensitive" } },
+    });
     if (existing) throw conflict("A member with this email already exists in the organization");
 
     const tempSecret = randomBytes(24).toString("hex");
-    const user: User = {
-      id: newId("user"),
-      orgId: id,
-      teamId: body.teamId ?? null,
-      email: body.email,
-      passwordHash: hashPassword(tempSecret),
-      name: body.name,
-      role: body.role as Role,
-      status: "invited",
-      createdAt: nowIso(),
-    };
-    store.users.set(user.id, user);
+    const user = await prisma.user.create({
+      data: {
+        orgId: id,
+        teamId: body.teamId ?? null,
+        email: body.email,
+        passwordHash: hashPassword(tempSecret),
+        name: body.name,
+        role: body.role,
+        status: "invited",
+      },
+    });
 
     writeAudit({
       orgId: id,

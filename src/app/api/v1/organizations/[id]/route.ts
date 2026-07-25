@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { getStore } from "@/server/db/store";
+import { getPrisma } from "@/server/db/prisma";
 import { resolvePrincipal, requireScope, rateLimitResponseHeaders } from "@/server/http/principal";
 import { ok, errorResponse } from "@/server/http/respond";
 import { parseJsonBody } from "@/server/http/validate";
@@ -21,8 +21,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     requireScope(principal, "organizations:read");
     if (id !== principal.orgId) throw forbidden("Cannot access another organization");
 
-    const store = getStore();
-    const org = store.organizations.get(id);
+    const prisma = await getPrisma();
+    const org = await prisma.organization.findUnique({ where: { id } });
     if (!org) throw notFound("Organization");
 
     return ok(org, { headers: rateLimitResponseHeaders(principal) });
@@ -40,12 +40,17 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
     const body = await parseJsonBody(request, patchSchema);
 
-    const store = getStore();
-    const org = store.organizations.get(id);
-    if (!org) throw notFound("Organization");
+    const prisma = await getPrisma();
+    const existing = await prisma.organization.findUnique({ where: { id } });
+    if (!existing) throw notFound("Organization");
 
-    if (body.name !== undefined) org.name = body.name;
-    if (body.plan !== undefined) org.plan = body.plan;
+    const org = await prisma.organization.update({
+      where: { id },
+      data: {
+        ...(body.name !== undefined ? { name: body.name } : {}),
+        ...(body.plan !== undefined ? { plan: body.plan } : {}),
+      },
+    });
 
     writeAudit({
       orgId: org.id,

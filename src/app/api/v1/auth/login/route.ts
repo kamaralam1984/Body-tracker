@@ -14,7 +14,7 @@ const loginSchema = z.object({
 export async function POST(request: NextRequest) {
   try {
     const body = await parseJsonBody(request, loginSchema);
-    const result = login(body.email, body.password);
+    const result = await login(body.email, body.password);
     return ok(result);
   } catch (error) {
     return errorResponse(error);

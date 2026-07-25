@@ -1,4 +1,4 @@
-import type { AnalyticsSnapshot } from "@/server/db/entities";
+import type { AnalyticsSnapshot } from "@prisma/client";
 
 /**
  * Aggregation + insight helpers for the Analytics domain.
@@ -8,6 +8,12 @@ import type { AnalyticsSnapshot } from "@/server/db/entities";
  * recent N snapshots vs the previous N and describing the delta in plain
  * language). This matches the project's established "no AI branding"
  * convention: nothing here is a model, a prediction, or a generated guess.
+ *
+ * Snapshot rows are fetched via Prisma (see the analytics/* routes), so
+ * `date` here is a real `Date` (Postgres DATE column, midnight UTC) rather
+ * than the ISO date string the old in-memory store used — every date
+ * comparison below operates on `Date` objects accordingly, but the
+ * aggregation/insight math itself is unchanged.
  */
 
 export interface AnalyticsSummary {
@@ -42,16 +48,18 @@ function average(values: number[]): number {
 
 /** Sorts snapshots by date ascending (oldest first). Does not mutate the input array. */
 export function sortByDateAsc(snapshots: AnalyticsSnapshot[]): AnalyticsSnapshot[] {
-  return [...snapshots].sort((a, b) => a.date.localeCompare(b.date));
+  return [...snapshots].sort((a, b) => a.date.getTime() - b.date.getTime());
 }
 
-/** Filters snapshots to those with `date` within the inclusive `[from, to]` range (ISO date strings, YYYY-MM-DD comparable lexically). */
+/** Filters snapshots to those with `date` within the inclusive `[from, to]` range (`from`/`to` are YYYY-MM-DD date-only strings; compared against the Date-typed `date` column at midnight UTC). */
 export function filterByDateRange(
   snapshots: AnalyticsSnapshot[],
   from: string,
   to: string,
 ): AnalyticsSnapshot[] {
-  return snapshots.filter((s) => s.date >= from && s.date <= to);
+  const fromMs = new Date(`${from}T00:00:00.000Z`).getTime();
+  const toMs = new Date(`${to}T00:00:00.000Z`).getTime();
+  return snapshots.filter((s) => s.date.getTime() >= fromMs && s.date.getTime() <= toMs);
 }
 
 /** Builds the totals + averages summary for a set of snapshots already scoped to org/user/date-range. */

@@ -1,8 +1,9 @@
 import { NextRequest } from "next/server";
-import { getStore } from "@/server/db/store";
+import { getPrisma } from "@/server/db/prisma";
 import { resolvePrincipal, requireScope, rateLimitResponseHeaders } from "@/server/http/principal";
 import { ok, errorResponse } from "@/server/http/respond";
 import { getOrgSession } from "@/server/services/sessions-service";
+import { toApiEventType } from "@/server/services/tracking-service";
 
 export const dynamic = "force-dynamic";
 
@@ -17,10 +18,14 @@ export async function GET(
     const principal = await resolvePrincipal(request);
     requireScope(principal, "tracking:read");
 
-    const session = getOrgSession(principal.orgId, sessionId);
-    const store = getStore();
-    const events = store.trackingEvents.get(sessionId) ?? [];
-    const recentEvents = events.slice(-RECENT_EVENTS_LIMIT).reverse();
+    const session = await getOrgSession(principal.orgId, sessionId);
+    const prisma = await getPrisma();
+    const events = await prisma.trackingEvent.findMany({
+      where: { sessionId },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: RECENT_EVENTS_LIMIT,
+    });
+    const recentEvents = events.map((event) => ({ ...event, type: toApiEventType(event.type) }));
 
     return ok({ session, recentEvents }, { headers: rateLimitResponseHeaders(principal) });
   } catch (error) {

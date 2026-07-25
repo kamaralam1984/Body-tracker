@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { getStore } from "@/server/db/store";
+import { getPrisma } from "@/server/db/prisma";
 import { resolvePrincipal, requireScope, rateLimitResponseHeaders } from "@/server/http/principal";
 import { ok, errorResponse } from "@/server/http/respond";
 import { notFound } from "@/server/http/errors";
@@ -12,8 +12,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const principal = await resolvePrincipal(request);
     requireScope(principal, "reports:read");
 
-    const store = getStore();
-    const report = store.reports.get(id);
+    const prisma = await getPrisma();
+    const report = await prisma.report.findUnique({ where: { id } });
     if (!report || report.orgId !== principal.orgId) throw notFound("Report");
 
     return ok(report, { headers: rateLimitResponseHeaders(principal) });

@@ -1,13 +1,12 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { getStore, newId, nowIso } from "@/server/db/store";
+import { getPrisma } from "@/server/db/prisma";
 import { resolvePrincipal, requireScope, rateLimitResponseHeaders } from "@/server/http/principal";
 import { ok, errorResponse } from "@/server/http/respond";
 import { parseJsonBody, parseQuery } from "@/server/http/validate";
 import { paginate } from "@/server/http/pagination";
 import { forbidden } from "@/server/http/errors";
 import { writeAudit } from "@/server/http/audit";
-import type { Team } from "@/server/db/entities";
 
 export const dynamic = "force-dynamic";
 
@@ -28,10 +27,11 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     if (id !== principal.orgId) throw forbidden("Cannot access another organization");
 
     const query = parseQuery(request.nextUrl.searchParams, listQuerySchema);
-    const store = getStore();
-    const teams = [...store.teams.values()]
-      .filter((team) => team.orgId === id)
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const prisma = await getPrisma();
+    const teams = await prisma.team.findMany({
+      where: { orgId: id },
+      orderBy: { createdAt: "asc" },
+    });
 
     const page = paginate(teams, query.cursor, query.limit);
 
@@ -53,14 +53,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     const body = await parseJsonBody(request, createSchema);
 
-    const store = getStore();
-    const team: Team = {
-      id: newId("team"),
-      orgId: id,
-      name: body.name,
-      createdAt: nowIso(),
-    };
-    store.teams.set(team.id, team);
+    const prisma = await getPrisma();
+    const team = await prisma.team.create({
+      data: { orgId: id, name: body.name },
+    });
 
     writeAudit({
       orgId: id,

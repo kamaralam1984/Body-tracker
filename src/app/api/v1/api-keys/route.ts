@@ -1,13 +1,13 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { getStore, newId, nowIso } from "@/server/db/store";
+import { getPrisma } from "@/server/db/prisma";
 import { resolvePrincipal, requireScope, rateLimitResponseHeaders } from "@/server/http/principal";
 import { ok, errorResponse } from "@/server/http/respond";
 import { parseJsonBody, parseQuery } from "@/server/http/validate";
 import { paginate } from "@/server/http/pagination";
 import { writeAudit } from "@/server/http/audit";
 import { generateApiKey } from "@/server/auth/api-keys";
-import { ALL_SCOPES, type ApiKey, type Scope } from "@/server/db/entities";
+import { ALL_SCOPES, type Scope } from "@/server/db/entities";
 import { sanitizeApiKey } from "@/server/services/auth-service";
 
 export const dynamic = "force-dynamic";
@@ -22,11 +22,13 @@ export async function GET(request: NextRequest) {
     const principal = await resolvePrincipal(request);
     requireScope(principal, "api-keys:read");
     const { cursor, limit } = parseQuery(request.nextUrl.searchParams, listQuerySchema);
-    const store = getStore();
-    const orgKeys = [...store.apiKeys.values()]
-      .filter((k) => k.orgId === principal.orgId)
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-      .map(sanitizeApiKey);
+    const prisma = await getPrisma();
+    const orgKeys = (
+      await prisma.apiKey.findMany({
+        where: { orgId: principal.orgId },
+        orderBy: { createdAt: "asc" },
+      })
+    ).map(sanitizeApiKey);
     const { items, nextCursor, total } = paginate(orgKeys, cursor, limit);
     return ok({ items, nextCursor, total }, { headers: rateLimitResponseHeaders(principal) });
   } catch (error) {
@@ -51,25 +53,24 @@ export async function POST(request: NextRequest) {
     const principal = await resolvePrincipal(request);
     requireScope(principal, "api-keys:write");
     const body = await parseJsonBody(request, createSchema);
-    const store = getStore();
+    const prisma = await getPrisma();
     const { plaintext, prefix, hash } = generateApiKey();
 
-    const key: ApiKey = {
-      id: newId("key"),
-      orgId: principal.orgId,
-      userId: principal.userId,
-      name: body.name,
-      keyPrefix: prefix,
-      keyHash: hash,
-      scopes: body.scopes,
-      status: "active",
-      rateLimitPerMinute: body.rateLimitPerMinute,
-      requestCount: 0,
-      lastUsedAt: null,
-      createdAt: nowIso(),
-      expiresAt: null,
-    };
-    store.apiKeys.set(key.id, key);
+    const key = await prisma.apiKey.create({
+      data: {
+        orgId: principal.orgId,
+        userId: principal.userId,
+        name: body.name,
+        keyPrefix: prefix,
+        keyHash: hash,
+        scopes: body.scopes,
+        status: "active",
+        rateLimitPerMinute: body.rateLimitPerMinute,
+        requestCount: 0,
+        lastUsedAt: null,
+        expiresAt: null,
+      },
+    });
 
     writeAudit({
       orgId: principal.orgId,

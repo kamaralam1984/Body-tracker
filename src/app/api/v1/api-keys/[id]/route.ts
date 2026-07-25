@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { getStore } from "@/server/db/store";
+import { getPrisma } from "@/server/db/prisma";
 import { resolvePrincipal, requireScope, rateLimitResponseHeaders } from "@/server/http/principal";
 import { ok, errorResponse } from "@/server/http/respond";
 import { notFound } from "@/server/http/errors";
@@ -16,11 +16,11 @@ export async function DELETE(
     requireScope(principal, "api-keys:write");
     const { id } = await params;
 
-    const store = getStore();
-    const key = store.apiKeys.get(id);
+    const prisma = await getPrisma();
+    const key = await prisma.apiKey.findUnique({ where: { id } });
     if (!key || key.orgId !== principal.orgId) throw notFound("API key");
 
-    key.status = "revoked";
+    await prisma.apiKey.update({ where: { id }, data: { status: "revoked" } });
 
     writeAudit({
       orgId: principal.orgId,

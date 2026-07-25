@@ -13,7 +13,7 @@ const refreshSchema = z.object({
 export async function POST(request: NextRequest) {
   try {
     const body = await parseJsonBody(request, refreshSchema);
-    const result = refreshSession(body.refreshToken);
+    const result = await refreshSession(body.refreshToken);
     return ok(result);
   } catch (error) {
     return errorResponse(error);

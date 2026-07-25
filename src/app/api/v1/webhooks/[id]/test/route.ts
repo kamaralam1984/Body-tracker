@@ -1,12 +1,18 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import type { WebhookDelivery } from "@/server/db/entities";
-import { getStore, newId, nowIso } from "@/server/db/store";
+import type { Prisma } from "@prisma/client";
+import { getPrisma } from "@/server/db/prisma";
 import { resolvePrincipal, requireScope, rateLimitResponseHeaders } from "@/server/http/principal";
 import { ok, errorResponse } from "@/server/http/respond";
 import { ApiError, badRequest, notFound } from "@/server/http/errors";
 import { writeAudit } from "@/server/http/audit";
-import { buildSampleEventPayload, signPayload } from "@/server/services/webhooks-service";
+import {
+  buildSampleEventPayload,
+  signPayload,
+  toApiDelivery,
+  toApiEvents,
+  toPrismaEventType,
+} from "@/server/services/webhooks-service";
 
 export const dynamic = "force-dynamic";
 
@@ -28,8 +34,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const principal = await resolvePrincipal(request);
     requireScope(principal, "webhooks:write");
 
-    const store = getStore();
-    const webhook = store.webhooks.get(id);
+    const prisma = await getPrisma();
+    const webhook = await prisma.webhook.findUnique({ where: { id } });
     if (!webhook || webhook.orgId !== principal.orgId) throw notFound("Webhook");
 
     // Body is optional — an empty/absent body just uses the webhook's first subscribed event.
@@ -53,9 +59,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       parsedBody = result.data;
     }
 
-    const event = parsedBody.event ?? webhook.events[0];
+    const webhookEvents = toApiEvents(webhook.events);
+    const event = parsedBody.event ?? webhookEvents[0];
     if (!event) throw badRequest("Webhook has no subscribed events to test");
-    if (!webhook.events.includes(event)) {
+    if (!webhookEvents.includes(event)) {
       throw badRequest(`Webhook is not subscribed to event "${event}"`);
     }
 
@@ -87,18 +94,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
     const durationMs = Date.now() - startedAt;
 
-    const delivery: WebhookDelivery = {
-      id: newId("whd"),
-      webhookId: webhook.id,
-      event,
-      payload,
-      attempt: 1,
-      status: deliverySucceeded ? "success" : "failed",
-      responseStatus,
-      durationMs,
-      createdAt: nowIso(),
-    };
-    store.webhookDeliveries.set(delivery.id, delivery);
+    const delivery = await prisma.webhookDelivery.create({
+      data: {
+        webhookId: webhook.id,
+        event: toPrismaEventType(event),
+        payload: payload as Prisma.InputJsonValue,
+        attempt: 1,
+        status: deliverySucceeded ? "success" : "failed",
+        responseStatus,
+        durationMs,
+      },
+    });
 
     writeAudit({
       orgId: principal.orgId,
@@ -108,7 +114,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       metadata: { event, status: delivery.status, responseStatus },
     });
 
-    return ok(delivery, { headers: rateLimitResponseHeaders(principal) });
+    return ok(toApiDelivery(delivery), { headers: rateLimitResponseHeaders(principal) });
   } catch (error) {
     return errorResponse(error);
   }

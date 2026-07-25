@@ -1,13 +1,20 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { getStore, newId, nowIso } from "@/server/db/store";
+import { getPrisma } from "@/server/db/prisma";
 import { resolvePrincipal, requireScope, rateLimitResponseHeaders } from "@/server/http/principal";
 import { ok, errorResponse } from "@/server/http/respond";
 import { parseJsonBody, parseQuery } from "@/server/http/validate";
 import { paginate } from "@/server/http/pagination";
 import { writeAudit } from "@/server/http/audit";
 import { getOrGenerateReportContent } from "@/server/services/reports-service";
-import type { Report } from "@/server/db/entities";
+import type {
+  Report as EntityReport,
+  AnalyticsSnapshot as EntitySnapshot,
+} from "@/server/db/entities";
+import type {
+  Report as PrismaReport,
+  AnalyticsSnapshot as PrismaAnalyticsSnapshot,
+} from "@prisma/client";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +31,33 @@ const createSchema = z.object({
   periodEnd: z.string().min(1),
 });
 
+/**
+ * `reports-service.ts` predates this migration and intentionally still
+ * speaks the old in-memory-store shapes (ISO date *strings*, see
+ * `@/server/db/entities`) — it's out of scope for this migration (see
+ * AGENTS.md), so rather than change its signature we adapt the
+ * Prisma-shaped rows (real `Date` objects) into that shape at the call
+ * site. This is a type-level shim only; the underlying values are the same.
+ */
+function toEntityReport(report: PrismaReport): EntityReport {
+  return {
+    ...report,
+    periodStart: report.periodStart.toISOString(),
+    periodEnd: report.periodEnd.toISOString(),
+    createdAt: report.createdAt.toISOString(),
+    readyAt: report.readyAt ? report.readyAt.toISOString() : null,
+  };
+}
+
+function toEntitySnapshot(snapshot: PrismaAnalyticsSnapshot): EntitySnapshot {
+  return { ...snapshot, date: snapshot.date.toISOString().slice(0, 10) };
+}
+
+/** Truncates a `Date` to a date-only value at midnight UTC, matching the `@db.Date` column semantics of `AnalyticsSnapshot.date`. */
+function dateOnlyUTC(date: Date): Date {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+}
+
 export async function GET(request: NextRequest) {
   try {
     const principal = await resolvePrincipal(request);
@@ -31,12 +65,11 @@ export async function GET(request: NextRequest) {
 
     const query = parseQuery(request.nextUrl.searchParams, listQuerySchema);
 
-    const store = getStore();
-    const rows = [...store.reports.values()]
-      .filter(
-        (r) => r.orgId === principal.orgId && (query.status ? r.status === query.status : true),
-      )
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const prisma = await getPrisma();
+    const rows = await prisma.report.findMany({
+      where: { orgId: principal.orgId, ...(query.status ? { status: query.status } : {}) },
+      orderBy: { createdAt: "desc" },
+    });
 
     const page = paginate(rows, query.cursor, query.limit);
 
@@ -56,42 +89,48 @@ export async function POST(request: NextRequest) {
 
     const body = await parseJsonBody(request, createSchema);
 
-    const store = getStore();
-    const report: Report = {
-      id: newId("rpt"),
-      orgId: principal.orgId,
-      userId: principal.userId,
-      title: body.title,
-      format: body.format,
-      status: "queued",
-      periodStart: body.periodStart,
-      periodEnd: body.periodEnd,
-      createdAt: nowIso(),
-      readyAt: null,
-      sizeBytes: null,
-    };
-    store.reports.set(report.id, report);
+    const prisma = await getPrisma();
+    let report = await prisma.report.create({
+      data: {
+        orgId: principal.orgId,
+        userId: principal.userId,
+        title: body.title,
+        format: body.format,
+        status: "queued",
+        periodStart: new Date(body.periodStart),
+        periodEnd: new Date(body.periodEnd),
+      },
+    });
 
     // There's no real background job queue (BullMQ+Redis) available in this
     // sandbox, so generation runs synchronously right here rather than being
     // enqueued and picked up by a worker. The content produced is real
     // (actual CSV/PDF bytes, not a stub), so this stands in honestly for
     // "async generation completed" without pretending to be async.
-    report.status = "generating";
+    report = await prisma.report.update({
+      where: { id: report.id },
+      data: { status: "generating" },
+    });
 
-    const periodStartDate = report.periodStart.slice(0, 10);
-    const periodEndDate = report.periodEnd.slice(0, 10);
-    const snapshots = [...store.analyticsSnapshots.values()]
-      .filter(
-        (s) => s.orgId === principal.orgId && s.date >= periodStartDate && s.date <= periodEndDate,
-      )
-      .sort((a, b) => a.date.localeCompare(b.date));
+    const periodStartDate = dateOnlyUTC(report.periodStart);
+    const periodEndDate = dateOnlyUTC(report.periodEnd);
+    const snapshots = await prisma.analyticsSnapshot.findMany({
+      where: {
+        orgId: principal.orgId,
+        date: { gte: periodStartDate, lte: periodEndDate },
+      },
+      orderBy: { date: "asc" },
+    });
 
-    const buffer = getOrGenerateReportContent(report, snapshots);
+    const buffer = getOrGenerateReportContent(
+      toEntityReport(report),
+      snapshots.map(toEntitySnapshot),
+    );
 
-    report.status = "ready";
-    report.readyAt = nowIso();
-    report.sizeBytes = buffer.byteLength;
+    report = await prisma.report.update({
+      where: { id: report.id },
+      data: { status: "ready", readyAt: new Date(), sizeBytes: buffer.byteLength },
+    });
 
     writeAudit({
       orgId: principal.orgId,

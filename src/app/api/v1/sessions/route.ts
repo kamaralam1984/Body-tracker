@@ -1,13 +1,12 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { getStore, newId, nowIso } from "@/server/db/store";
+import { getPrisma } from "@/server/db/prisma";
 import { resolvePrincipal, requireScope, rateLimitResponseHeaders } from "@/server/http/principal";
 import { ok, errorResponse } from "@/server/http/respond";
 import { parseJsonBody, parseQuery } from "@/server/http/validate";
 import { paginate } from "@/server/http/pagination";
 import { writeAudit } from "@/server/http/audit";
 import { listOrgSessions } from "@/server/services/sessions-service";
-import type { TrackingSession } from "@/server/db/entities";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +28,7 @@ export async function GET(request: NextRequest) {
     requireScope(principal, "sessions:read");
 
     const query = parseQuery(request.nextUrl.searchParams, listQuerySchema);
-    const sessions = listOrgSessions(principal.orgId, {
+    const sessions = await listOrgSessions(principal.orgId, {
       status: query.status,
       activityKind: query.activityKind,
     });
@@ -47,27 +46,17 @@ export async function POST(request: NextRequest) {
     requireScope(principal, "sessions:write");
 
     const body = await parseJsonBody(request, createSchema);
-    const store = getStore();
+    const prisma = await getPrisma();
 
-    const timestamp = nowIso();
-    const session: TrackingSession = {
-      id: newId("sess"),
-      orgId: principal.orgId,
-      userId: principal.userId,
-      title: body.title,
-      activityKind: body.activityKind,
-      status: "idle",
-      startedAt: "",
-      pausedAt: null,
-      endedAt: null,
-      durationSeconds: 0,
-      repCount: 0,
-      caloriesEstimate: 0,
-      avgFormScore: 0,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    };
-    store.trackingSessions.set(session.id, session);
+    const session = await prisma.trackingSession.create({
+      data: {
+        orgId: principal.orgId,
+        userId: principal.userId,
+        title: body.title,
+        activityKind: body.activityKind,
+        status: "idle",
+      },
+    });
 
     writeAudit({
       orgId: principal.orgId,

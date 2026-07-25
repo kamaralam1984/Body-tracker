@@ -1,14 +1,13 @@
 import { randomBytes } from "node:crypto";
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { getStore, newId, nowIso } from "@/server/db/store";
-import type { Webhook } from "@/server/db/entities";
+import { getPrisma } from "@/server/db/prisma";
 import { resolvePrincipal, requireScope, rateLimitResponseHeaders } from "@/server/http/principal";
 import { ok, errorResponse } from "@/server/http/respond";
 import { parseJsonBody, parseQuery } from "@/server/http/validate";
 import { paginate } from "@/server/http/pagination";
 import { writeAudit } from "@/server/http/audit";
-import { sanitizeWebhook } from "@/server/services/webhooks-service";
+import { sanitizeWebhook, toPrismaEvents } from "@/server/services/webhooks-service";
 
 export const dynamic = "force-dynamic";
 
@@ -36,11 +35,13 @@ export async function GET(request: NextRequest) {
     requireScope(principal, "webhooks:read");
 
     const query = parseQuery(request.nextUrl.searchParams, listQuerySchema);
-    const store = getStore();
-    const webhooks = [...store.webhooks.values()]
-      .filter((webhook) => webhook.orgId === principal.orgId)
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-      .map(sanitizeWebhook);
+    const prisma = await getPrisma();
+    const webhooks = (
+      await prisma.webhook.findMany({
+        where: { orgId: principal.orgId },
+        orderBy: { createdAt: "asc" },
+      })
+    ).map(sanitizeWebhook);
 
     const page = paginate(webhooks, query.cursor, query.limit);
 
@@ -60,29 +61,33 @@ export async function POST(request: NextRequest) {
 
     const body = await parseJsonBody(request, createSchema);
 
-    const store = getStore();
-    const webhook: Webhook = {
-      id: newId("wh"),
-      orgId: principal.orgId,
-      url: body.url,
-      secret: randomBytes(24).toString("hex"),
-      events: body.events,
-      status: "active",
-      createdAt: nowIso(),
-    };
-    store.webhooks.set(webhook.id, webhook);
+    const prisma = await getPrisma();
+    const webhook = await prisma.webhook.create({
+      data: {
+        orgId: principal.orgId,
+        url: body.url,
+        secret: randomBytes(24).toString("hex"),
+        events: toPrismaEvents(body.events),
+        status: "active",
+      },
+    });
 
     writeAudit({
       orgId: principal.orgId,
       actorId: principal.userId,
       action: "webhook.created",
       target: webhook.id,
-      metadata: { url: webhook.url, events: webhook.events },
+      metadata: { url: webhook.url, events: body.events },
     });
 
     // The secret is only ever returned in full at creation time; subsequent
-    // reads always go through sanitizeWebhook().
-    return ok(webhook, { status: 201, headers: rateLimitResponseHeaders(principal) });
+    // reads always go through sanitizeWebhook(). `events` is overridden with
+    // the already-validated app-facing strings rather than re-mapped from
+    // the Prisma enum, since they're equivalent and this preserves order.
+    return ok(
+      { ...webhook, events: body.events },
+      { status: 201, headers: rateLimitResponseHeaders(principal) },
+    );
   } catch (error) {
     return errorResponse(error);
   }

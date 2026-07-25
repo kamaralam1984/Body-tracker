@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { getStore } from "@/server/db/store";
+import { getPrisma } from "@/server/db/prisma";
 import { resolvePrincipal, requireScope, rateLimitResponseHeaders } from "@/server/http/principal";
 import { ok, errorResponse } from "@/server/http/respond";
 import { parseQuery } from "@/server/http/validate";
@@ -27,10 +27,10 @@ export async function GET(request: NextRequest) {
     const from = query.from ?? daysAgoDateOnly(7);
     const to = query.to ?? daysAgoDateOnly(0);
 
-    const store = getStore();
-    const scoped = [...store.analyticsSnapshots.values()].filter(
-      (s) => s.orgId === principal.orgId && (query.userId ? s.userId === query.userId : true),
-    );
+    const prisma = await getPrisma();
+    const scoped = await prisma.analyticsSnapshot.findMany({
+      where: { orgId: principal.orgId, ...(query.userId ? { userId: query.userId } : {}) },
+    });
     const inRange = filterByDateRange(scoped, from, to);
 
     const summary = summarize(inRange, from, to);

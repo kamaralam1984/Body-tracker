@@ -1,10 +1,11 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
+import { getPrisma } from "@/server/db/prisma";
 import { resolvePrincipal, requireScope, rateLimitResponseHeaders } from "@/server/http/principal";
 import { ok, errorResponse } from "@/server/http/respond";
 import { conflict } from "@/server/http/errors";
 import { parseJsonBody } from "@/server/http/validate";
-import { getOrgSession, touchSession } from "@/server/services/sessions-service";
+import { getOrgSession } from "@/server/services/sessions-service";
 import {
   appendTrackingEvent,
   CALORIES_PER_REP,
@@ -29,30 +30,34 @@ export async function POST(
     requireScope(principal, "tracking:write");
 
     const body = await parseJsonBody(request, repSchema);
-    const session = getOrgSession(principal.orgId, sessionId);
-    if (session.status !== "active") {
+    const existing = await getOrgSession(principal.orgId, sessionId);
+    if (existing.status !== "active") {
       throw conflict(
-        `Cannot record a rep for a session with status "${session.status}" — session must be active`,
+        `Cannot record a rep for a session with status "${existing.status}" — session must be active`,
       );
     }
 
-    if (body.formScore !== undefined) {
-      session.avgFormScore = nextRunningAverage(
-        session.avgFormScore,
-        session.repCount,
-        body.formScore,
-      );
-    }
-    session.repCount += 1;
-    session.caloriesEstimate += CALORIES_PER_REP;
-    touchSession(session);
+    const avgFormScore =
+      body.formScore !== undefined
+        ? nextRunningAverage(existing.avgFormScore, existing.repCount, body.formScore)
+        : existing.avgFormScore;
+
+    const prisma = await getPrisma();
+    const session = await prisma.trackingSession.update({
+      where: { id: sessionId },
+      data: {
+        avgFormScore,
+        repCount: existing.repCount + 1,
+        caloriesEstimate: existing.caloriesEstimate + CALORIES_PER_REP,
+      },
+    });
 
     const repData: Record<string, number | string> = { repCount: session.repCount };
     if (body.formScore !== undefined) repData.formScore = body.formScore;
-    appendTrackingEvent(session.id, "rep", `Rep ${session.repCount} recorded`, repData);
+    await appendTrackingEvent(session.id, "rep", `Rep ${session.repCount} recorded`, repData);
 
     if (body.formScore !== undefined && body.formScore < LOW_FORM_SCORE_THRESHOLD) {
-      appendTrackingEvent(
+      await appendTrackingEvent(
         session.id,
         "form-alert",
         `Form score dropped to ${body.formScore} — check your form`,

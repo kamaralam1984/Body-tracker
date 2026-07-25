@@ -1,10 +1,10 @@
 import { NextRequest } from "next/server";
-import { nowIso } from "@/server/db/store";
+import { getPrisma } from "@/server/db/prisma";
 import { resolvePrincipal, requireScope, rateLimitResponseHeaders } from "@/server/http/principal";
 import { ok, errorResponse } from "@/server/http/respond";
 import { conflict } from "@/server/http/errors";
 import { writeAudit } from "@/server/http/audit";
-import { getOrgSession, touchSession } from "@/server/services/sessions-service";
+import { getOrgSession } from "@/server/services/sessions-service";
 import { appendTrackingEvent, computeElapsedSeconds } from "@/server/services/tracking-service";
 
 export const dynamic = "force-dynamic";
@@ -18,20 +18,27 @@ export async function POST(
     const principal = await resolvePrincipal(request);
     requireScope(principal, "tracking:write");
 
-    const session = getOrgSession(principal.orgId, sessionId);
-    if (session.status !== "active" && session.status !== "paused") {
+    const existing = await getOrgSession(principal.orgId, sessionId);
+    if (existing.status !== "active" && existing.status !== "paused") {
       throw conflict(
-        `Cannot stop a session with status "${session.status}" — session must be active or paused`,
+        `Cannot stop a session with status "${existing.status}" — session must be active or paused`,
       );
     }
 
-    session.durationSeconds = computeElapsedSeconds(session);
-    session.status = "completed";
-    session.endedAt = nowIso();
-    session.pausedAt = null;
-    touchSession(session);
+    const durationSeconds = computeElapsedSeconds(existing);
 
-    appendTrackingEvent(session.id, "completed", "Session completed", {
+    const prisma = await getPrisma();
+    const session = await prisma.trackingSession.update({
+      where: { id: sessionId },
+      data: {
+        durationSeconds,
+        status: "completed",
+        endedAt: new Date(),
+        pausedAt: null,
+      },
+    });
+
+    await appendTrackingEvent(session.id, "completed", "Session completed", {
       durationSeconds: session.durationSeconds,
       repCount: session.repCount,
     });

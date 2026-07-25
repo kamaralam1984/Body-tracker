@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { getStore } from "@/server/db/store";
+import { getPrisma } from "@/server/db/prisma";
 import { resolvePrincipal, requireScope, rateLimitResponseHeaders } from "@/server/http/principal";
 import { ok, errorResponse } from "@/server/http/respond";
 import { parseJsonBody } from "@/server/http/validate";
@@ -28,13 +28,18 @@ export async function PATCH(
 
     const body = await parseJsonBody(request, patchSchema);
 
-    const store = getStore();
-    const user = store.users.get(userId);
-    if (!user || user.orgId !== id) throw notFound("Member");
+    const prisma = await getPrisma();
+    const existing = await prisma.user.findUnique({ where: { id: userId } });
+    if (!existing || existing.orgId !== id) throw notFound("Member");
 
-    if (body.role !== undefined) user.role = body.role;
-    if (body.teamId !== undefined) user.teamId = body.teamId;
-    if (body.status !== undefined) user.status = body.status;
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        ...(body.role !== undefined ? { role: body.role } : {}),
+        ...(body.teamId !== undefined ? { teamId: body.teamId } : {}),
+        ...(body.status !== undefined ? { status: body.status } : {}),
+      },
+    });
 
     writeAudit({
       orgId: id,
@@ -60,13 +65,13 @@ export async function DELETE(
     requireScope(principal, "organizations:write");
     if (id !== principal.orgId) throw forbidden("Cannot access another organization");
 
-    const store = getStore();
-    const user = store.users.get(userId);
+    const prisma = await getPrisma();
+    const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user || user.orgId !== id) throw notFound("Member");
 
     if (user.role === "owner") throw conflict("Cannot remove the organization owner");
 
-    store.users.delete(userId);
+    await prisma.user.delete({ where: { id: userId } });
 
     writeAudit({
       orgId: id,

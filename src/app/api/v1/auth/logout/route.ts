@@ -13,7 +13,7 @@ const logoutSchema = z.object({
 export async function POST(request: NextRequest) {
   try {
     const body = await parseJsonBody(request, logoutSchema);
-    const result = logout(body.refreshToken);
+    const result = await logout(body.refreshToken);
     return ok(result);
   } catch (error) {
     return errorResponse(error);

@@ -1,5 +1,6 @@
-import type { Role, Scope, User } from "@/server/db/entities";
+import type { Role, Scope } from "@/server/db/entities";
 import { ALL_SCOPES } from "@/server/db/entities";
+import type { User as PrismaUser } from "@prisma/client";
 
 /**
  * Shared helpers for the Organizations + Teams + Members + Roles domain.
@@ -76,19 +77,11 @@ export const ROLE_DESCRIPTORS: RoleDescriptor[] = [
   },
 ];
 
-export type SanitizedUser = Omit<User, "passwordHash">;
+export type SanitizedUser = Omit<PrismaUser, "passwordHash">;
 
 /** Strips the password hash before a user record ever leaves the API. */
-export function sanitizeUser(user: User): SanitizedUser {
-  const sanitized: SanitizedUser = {
-    id: user.id,
-    orgId: user.orgId,
-    teamId: user.teamId,
-    email: user.email,
-    name: user.name,
-    role: user.role,
-    status: user.status,
-    createdAt: user.createdAt,
-  };
-  return sanitized;
+export function sanitizeUser(user: PrismaUser): SanitizedUser {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- intentionally dropping the secret field
+  const { passwordHash, ...rest } = user;
+  return rest;
 }

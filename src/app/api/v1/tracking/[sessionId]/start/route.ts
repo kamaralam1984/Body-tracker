@@ -1,10 +1,10 @@
 import { NextRequest } from "next/server";
-import { nowIso } from "@/server/db/store";
+import { getPrisma } from "@/server/db/prisma";
 import { resolvePrincipal, requireScope, rateLimitResponseHeaders } from "@/server/http/principal";
 import { ok, errorResponse } from "@/server/http/respond";
 import { conflict } from "@/server/http/errors";
 import { writeAudit } from "@/server/http/audit";
-import { getOrgSession, touchSession } from "@/server/services/sessions-service";
+import { getOrgSession } from "@/server/services/sessions-service";
 import { appendTrackingEvent } from "@/server/services/tracking-service";
 
 export const dynamic = "force-dynamic";
@@ -18,19 +18,20 @@ export async function POST(
     const principal = await resolvePrincipal(request);
     requireScope(principal, "tracking:write");
 
-    const session = getOrgSession(principal.orgId, sessionId);
-    if (session.status !== "idle") {
+    const existing = await getOrgSession(principal.orgId, sessionId);
+    if (existing.status !== "idle") {
       throw conflict(
-        `Cannot start a session with status "${session.status}" — session must be idle`,
+        `Cannot start a session with status "${existing.status}" — session must be idle`,
       );
     }
 
-    session.status = "active";
-    session.startedAt = nowIso();
-    session.pausedAt = null;
-    touchSession(session);
+    const prisma = await getPrisma();
+    const session = await prisma.trackingSession.update({
+      where: { id: sessionId },
+      data: { status: "active", startedAt: new Date(), pausedAt: null },
+    });
 
-    appendTrackingEvent(session.id, "started", "Session started", {});
+    await appendTrackingEvent(session.id, "started", "Session started", {});
 
     writeAudit({
       orgId: principal.orgId,

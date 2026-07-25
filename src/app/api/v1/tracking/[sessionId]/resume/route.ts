@@ -1,9 +1,10 @@
 import { NextRequest } from "next/server";
+import { getPrisma } from "@/server/db/prisma";
 import { resolvePrincipal, requireScope, rateLimitResponseHeaders } from "@/server/http/principal";
 import { ok, errorResponse } from "@/server/http/respond";
 import { conflict } from "@/server/http/errors";
 import { writeAudit } from "@/server/http/audit";
-import { getOrgSession, touchSession } from "@/server/services/sessions-service";
+import { getOrgSession } from "@/server/services/sessions-service";
 import { appendTrackingEvent } from "@/server/services/tracking-service";
 
 export const dynamic = "force-dynamic";
@@ -17,18 +18,20 @@ export async function POST(
     const principal = await resolvePrincipal(request);
     requireScope(principal, "tracking:write");
 
-    const session = getOrgSession(principal.orgId, sessionId);
-    if (session.status !== "paused") {
+    const existing = await getOrgSession(principal.orgId, sessionId);
+    if (existing.status !== "paused") {
       throw conflict(
-        `Cannot resume a session with status "${session.status}" — session must be paused`,
+        `Cannot resume a session with status "${existing.status}" — session must be paused`,
       );
     }
 
-    session.status = "active";
-    session.pausedAt = null;
-    touchSession(session);
+    const prisma = await getPrisma();
+    const session = await prisma.trackingSession.update({
+      where: { id: sessionId },
+      data: { status: "active", pausedAt: null },
+    });
 
-    appendTrackingEvent(session.id, "resumed", "Session resumed", {});
+    await appendTrackingEvent(session.id, "resumed", "Session resumed", {});
 
     writeAudit({
       orgId: principal.orgId,
