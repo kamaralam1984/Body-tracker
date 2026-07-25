@@ -101,6 +101,7 @@ npm ci
 npm run build
 cp -r .next/static .next/standalone/.next/static
 cp -r public .next/standalone/public
+cp .env.local .next/standalone/.env.local
 pm2 reload ecosystem.config.js --env production
 ```
 

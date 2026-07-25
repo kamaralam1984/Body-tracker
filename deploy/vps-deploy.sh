@@ -27,7 +27,7 @@ else
   cd "$APP_DIR"
 fi
 
-echo "==> Creating .env.local — EDIT DATABASE_URL/BTK_JWT_SECRET below before running, or edit after"
+echo "==> Creating .env.local — you MUST set a real DATABASE_URL before continuing"
 if [ ! -f "$APP_DIR/.env.local" ]; then
   cat > "$APP_DIR/.env.local" <<EOF
 NODE_ENV=production
@@ -35,8 +35,16 @@ PORT=$PORT
 BTK_JWT_SECRET=$(openssl rand -base64 48 | tr -d '\n')
 DATABASE_URL=REPLACE_WITH_YOUR_REAL_NEON_CONNECTION_STRING
 EOF
-  echo "!!! .env.local created with a random BTK_JWT_SECRET — you MUST edit DATABASE_URL before starting the app:"
+  echo ""
+  echo "!!! Edit DATABASE_URL now:"
   echo "    nano $APP_DIR/.env.local"
+  echo ""
+  read -r -p "Press Enter once you've saved a real DATABASE_URL (or Ctrl+C to abort and rerun this script later)... "
+  if grep -q "REPLACE_WITH_YOUR_REAL_NEON_CONNECTION_STRING" "$APP_DIR/.env.local"; then
+    echo "DATABASE_URL still looks like the placeholder — aborting so nothing starts against a fake database."
+    echo "Edit $APP_DIR/.env.local and rerun this script."
+    exit 1
+  fi
 else
   echo ".env.local already exists — leaving it as-is."
 fi
@@ -45,8 +53,16 @@ echo "==> Installing dependencies and building"
 cd "$APP_DIR"
 npm ci
 npm run build
+
+# The standalone server.js reads .env files from its OWN directory, not
+# the project root (Next.js docs only mention copying public/.next/static
+# here — .env files need the same treatment). Without this, DATABASE_URL
+# etc. are invisible to the running app even though the file "exists" at
+# the project root — this must be redone after every rebuild, exactly
+# like the static/public copy below.
 cp -r .next/static .next/standalone/.next/static
 cp -r public .next/standalone/public
+cp .env.local .next/standalone/.env.local
 
 echo "==> Starting under PM2 (app name: body-tracker, port: $PORT)"
 pm2 delete body-tracker 2>/dev/null || true

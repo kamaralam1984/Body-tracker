@@ -14,15 +14,22 @@ How to run Body Tracker on a plain Linux host (a VM, a bare-metal box — no con
 
 ## The standalone-assets gotcha (read this before your first deploy)
 
-`next build` with `output: "standalone"` produces `.next/standalone/server.js`, but it does **not** copy `.next/static` or `public` into that output directory automatically. If you skip this step, the app boots under PM2 but serves broken pages — no CSS, no client JS, no static assets. Every deploy must run:
+`next build` with `output: "standalone"` produces `.next/standalone/server.js`, but it does **not** copy `.next/static`, `public`, or your `.env.local` into that output directory automatically (confirmed against Next.js's own docs — they only mention `public`/`.next/static`, not env files). If you skip the static/public copy, the app boots under PM2 but serves broken pages — no CSS, no client JS. If you skip the `.env.local` copy, it's worse and quieter: the server starts and looks healthy (`/api/v1/health` returns 200, since that route has no dependencies), but every route that touches the database throws `"DATABASE_URL is not set"` — because the standalone `server.js` reads env files from **its own directory**, not the project root where you edited `.env.local`. Every deploy must run:
 
 ```bash
 npm run build
 cp -r .next/static .next/standalone/.next/static
 cp -r public .next/standalone/public
+cp .env.local .next/standalone/.env.local
 ```
 
-This is easy to forget because `npm run build` alone looks like it succeeded — the server starts, it just serves an unstyled, broken page. `scripts/pm2-setup.sh` (below) automates this step for first-time setup, but if you hand-roll a redeploy script, make sure it's in there too.
+Then reload, with `--update-env` so PM2 actually picks up the refreshed file rather than reusing its cached environment from the last start:
+
+```bash
+pm2 restart body-tracker --update-env
+```
+
+This is easy to forget because `npm run build` alone looks like it succeeded — the server starts, it just serves broken pages or silently fails every database-backed request. `scripts/pm2-setup.sh` (below) automates this step for first-time setup, but if you hand-roll a redeploy script, make sure it's in there too.
 
 ## `ecosystem.config.js`: what it actually does
 
@@ -133,6 +140,7 @@ For a code update after the initial setup:
 npm run build
 cp -r .next/static .next/standalone/.next/static
 cp -r public .next/standalone/public
+cp .env.local .next/standalone/.env.local
 pm2 reload body-tracker
 ```
 
@@ -179,6 +187,7 @@ pm2 save
 npm run build
 cp -r .next/static .next/standalone/.next/static
 cp -r public .next/standalone/public
+cp .env.local .next/standalone/.env.local
 pm2 reload body-tracker
 
 # Observability

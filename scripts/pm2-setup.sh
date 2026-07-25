@@ -11,9 +11,19 @@ echo "==> Installing dependencies and building the standalone server"
 npm ci
 npm run build
 
-echo "==> Copying static assets into the standalone output (Next.js requires this manually)"
+echo "==> Copying static assets + env file into the standalone output"
+echo "    (Next.js docs only mention public/.next/static, but the standalone"
+echo "    server.js also reads .env files from its OWN directory, not the"
+echo "    project root — without this DATABASE_URL etc. are invisible to the"
+echo "    running app even though the file exists elsewhere. Redo this whole"
+echo "    block after every rebuild.)"
 cp -r .next/static .next/standalone/.next/static
 cp -r public .next/standalone/public
+if [ -f .env.local ]; then
+  cp .env.local .next/standalone/.env.local
+else
+  echo "!!! No .env.local found at the project root — create one before starting PM2."
+fi
 
 echo "==> Starting under PM2 (cluster mode, one worker per CPU core)"
 pm2 start ecosystem.config.js --env production
