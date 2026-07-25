@@ -15,6 +15,12 @@ import { drawHand } from "../lib/render/draw-hand";
 import { drawPose } from "../lib/render/draw-pose";
 import { extrapolateTrackingFrame } from "../lib/render/extrapolate-frame";
 import { resolveTrackingColors, type TrackingColors } from "../lib/render/resolve-tracking-colors";
+import {
+  drawWireframe,
+  drawLandmarkIds,
+  drawBoundingBoxes,
+  drawConfidenceOverlay,
+} from "../lib/render/render-modes";
 import type { TrackingFrame } from "../types";
 
 // Bounds on how far we'll predict past the newest detected frame — see
@@ -36,7 +42,7 @@ const COLOR_REFRESH_INTERVAL_FRAMES = 60;
 
 export function TrackingCanvas({ containerRef, className }: TrackingCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const { frameRef, config } = useTrackingContext();
+  const { frameRef, config, renderMode } = useTrackingContext();
 
   useEffect(() => {
     const container = containerRef.current;
@@ -105,14 +111,31 @@ export function TrackingCanvas({ containerRef, className }: TrackingCanvasProps)
         currDetectionArrivedAt = now;
       }
 
-      if (currDetectionFrame && cssWidth > 0 && cssHeight > 0) {
+      if (currDetectionFrame && cssWidth > 0 && cssHeight > 0 && renderMode !== "camera-only") {
         const elapsedSinceDetection = now - currDetectionArrivedAt;
         const alpha = Math.min(elapsedSinceDetection, detectionIntervalMs) / detectionIntervalMs;
         const frame = extrapolateTrackingFrame(prevDetectionFrame, currDetectionFrame, alpha);
 
-        if (frame.face) drawFace(ctx!, frame.face, cssWidth, cssHeight, colors);
-        if (frame.hands.length > 0) drawHand(ctx!, frame.hands, cssWidth, cssHeight, colors);
-        if (frame.pose) drawPose(ctx!, frame.pose, cssWidth, cssHeight, colors);
+        switch (renderMode) {
+          case "wireframe":
+            drawWireframe(ctx!, frame, cssWidth, cssHeight, colors);
+            break;
+          case "landmark-ids":
+            drawLandmarkIds(ctx!, frame, cssWidth, cssHeight, colors);
+            break;
+          case "bounding-box":
+            drawBoundingBoxes(ctx!, frame, cssWidth, cssHeight, colors);
+            break;
+          case "confidence":
+            drawConfidenceOverlay(ctx!, frame, cssWidth, cssHeight, colors);
+            break;
+          case "skeleton":
+          default:
+            if (frame.face) drawFace(ctx!, frame.face, cssWidth, cssHeight, colors);
+            if (frame.hands.length > 0) drawHand(ctx!, frame.hands, cssWidth, cssHeight, colors);
+            if (frame.pose) drawPose(ctx!, frame.pose, cssWidth, cssHeight, colors);
+            break;
+        }
       }
 
       rafHandle = requestAnimationFrame(draw);
@@ -125,7 +148,7 @@ export function TrackingCanvas({ containerRef, className }: TrackingCanvasProps)
     };
     // containerRef/frameRef are stable ref objects for the lifetime of this component.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [renderMode]);
 
   return (
     <canvas

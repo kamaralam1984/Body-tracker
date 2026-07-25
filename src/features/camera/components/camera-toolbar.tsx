@@ -19,6 +19,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useCameraContext } from "../context/camera-provider";
 import { MirrorToggle } from "./mirror-toggle";
+import { CameraFlipButton } from "./camera-flip-button";
 
 interface CameraToolbarProps {
   onScreenshot?: (dataUrl: string) => void;
@@ -167,6 +168,7 @@ export function CameraToolbar({ onScreenshot, className }: CameraToolbarProps) {
         disabled={!isSupported || !canPause}
       />
       <MirrorToggle />
+      <CameraFlipButton />
       <ToolbarButton
         label="Take screenshot (S)"
         icon={CameraIcon}

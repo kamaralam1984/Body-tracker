@@ -12,17 +12,21 @@
  * </TrackingProvider>
  */
 
-import { createContext, useContext } from "react";
+import { createContext, useContext, useState } from "react";
 import {
   useBodyTracking,
   type UseBodyTrackingOptions,
   type UseBodyTrackingResult,
 } from "../hooks/use-body-tracking";
 import { useTrackingSessionSync, type LiveTrackingStats } from "../hooks/use-tracking-session-sync";
+import type { RenderMode } from "../lib/render/render-modes";
 
 export interface TrackingContextValue extends UseBodyTrackingResult {
   /** Live camera-page stats (session summary, timeline, face/hand/pose readouts) — see use-tracking-session-sync.ts. */
   live: LiveTrackingStats;
+  /** Which overlay visualization `TrackingCanvas` draws — a rendering concern, independent of the detection engine's own `config`. */
+  renderMode: RenderMode;
+  setRenderMode: (mode: RenderMode) => void;
 }
 
 const TrackingContext = createContext<TrackingContextValue | null>(null);
@@ -39,8 +43,11 @@ export function TrackingProvider({ children, ...options }: TrackingProviderProps
   // network-free. Its `live` return value also powers the camera page's
   // live session-summary/timeline/alerts/analytics panels.
   const { live } = useTrackingSessionSync({ frameRef: tracking.frameRef, active: options.active });
+  const [renderMode, setRenderMode] = useState<RenderMode>("skeleton");
   return (
-    <TrackingContext.Provider value={{ ...tracking, live }}>{children}</TrackingContext.Provider>
+    <TrackingContext.Provider value={{ ...tracking, live, renderMode, setRenderMode }}>
+      {children}
+    </TrackingContext.Provider>
   );
 }
 

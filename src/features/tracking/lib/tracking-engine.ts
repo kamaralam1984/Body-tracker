@@ -73,6 +73,10 @@ const MODEL_URLS = {
 // since low-confidence, noisy candidate detections get rejected up front.
 const MIN_CONFIDENCE = 0.65;
 
+// Cap on how many faces the model will report at all (see numFaces below) —
+// only used to derive `faceCount` for the "multiple people detected" alert.
+const MAX_DETECTABLE_FACES = 4;
+
 // MediaPipe Pose landmark indices 0–10 (nose, left/right eye inner-center-outer,
 // left/right ear, mouth left/right) — see processPose below for why these get
 // excluded from what's actually drawn.
@@ -211,7 +215,10 @@ export class TrackingEngine {
       this.faceLandmarker = await this.vision.FaceLandmarker.createFromOptions(this.fileset, {
         baseOptions: { modelAssetPath: MODEL_URLS.face, delegate: "GPU" },
         runningMode: "VIDEO",
-        numFaces: 1,
+        // >1 so a real faceCount (see detectFrame) can drive a "multiple
+        // people detected" alert — every score/dashboard in this app still
+        // only ever tracks a single primary (largest) face, by design.
+        numFaces: MAX_DETECTABLE_FACES,
         outputFaceBlendshapes: true,
         outputFacialTransformationMatrixes: true,
         minFaceDetectionConfidence: MIN_CONFIDENCE,
@@ -283,6 +290,7 @@ export class TrackingEngine {
     let face: FaceTrackingResult | null = null;
     let hands: HandTrackingResult[] = [];
     let pose: PoseTrackingResult | null = null;
+    let faceCount = 0;
     let anyEnabled = false;
     let anyDetected = false;
 
@@ -291,6 +299,7 @@ export class TrackingEngine {
         anyEnabled = true;
         const result = this.faceLandmarker.detectForVideo(video, timestampMs);
         face = this.processFace(result, timestampMs);
+        faceCount = result.faceLandmarks.length;
         if (face) anyDetected = true;
       }
       if (this.handLandmarker) {
@@ -328,7 +337,7 @@ export class TrackingEngine {
       }
     }
 
-    return { timestampMs, face, hands, pose };
+    return { timestampMs, face, hands, pose, faceCount };
   }
 
   private handleDetectionError(): void {
@@ -387,8 +396,43 @@ export class TrackingEngine {
     this.poseSmoother.reset();
   }
 
+  /**
+   * Index of the primary face to actually track/score when more than one is
+   * detected — the largest (closest-to-camera) bounding box, not just
+   * whichever the model happens to return first. Every downstream score is
+   * single-subject by design; this is the one place multi-face results get
+   * collapsed to one. Returns the INDEX (not the landmarks themselves) so
+   * `processFace` can consistently pull the matching blendshapes/
+   * transformation-matrix entries — those are parallel arrays keyed by the
+   * same per-face index in MediaPipe's result.
+   */
+  private pickPrimaryFaceIndex(faceLandmarks: NormalizedLandmark[][]): number {
+    if (faceLandmarks.length <= 1) return 0;
+    let bestIndex = 0;
+    let largestArea = -1;
+    faceLandmarks.forEach((landmarks, index) => {
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      for (const p of landmarks) {
+        minX = Math.min(minX, p.x);
+        minY = Math.min(minY, p.y);
+        maxX = Math.max(maxX, p.x);
+        maxY = Math.max(maxY, p.y);
+      }
+      const area = (maxX - minX) * (maxY - minY);
+      if (area > largestArea) {
+        largestArea = area;
+        bestIndex = index;
+      }
+    });
+    return bestIndex;
+  }
+
   private processFace(result: FaceLandmarkerResult, t: number): FaceTrackingResult | null {
-    const landmarks = result.faceLandmarks[0];
+    const primaryIndex = this.pickPrimaryFaceIndex(result.faceLandmarks);
+    const landmarks = result.faceLandmarks[primaryIndex];
     if (!landmarks || landmarks.length === 0 || !this.faceContourConnections) return null;
 
     const smoothed = this.faceSmoother.smoothPoints("face", t, landmarks.map(toTrackingPoint));
@@ -398,7 +442,7 @@ export class TrackingEngine {
       segments: segmentsFromConnections(smoothed, this.faceContourConnections![name]),
     }));
 
-    const blendshapes = result.faceBlendshapes[0]?.categories ?? [];
+    const blendshapes = result.faceBlendshapes[primaryIndex]?.categories ?? [];
     const blink = {
       left: getCategoryScore(blendshapes, "eyeBlinkLeft") > 0.5,
       right: getCategoryScore(blendshapes, "eyeBlinkRight") > 0.5,
@@ -410,7 +454,7 @@ export class TrackingEngine {
       0.35;
     const mouthOpen = getCategoryScore(blendshapes, "jawOpen") > 0.3;
 
-    const matrix = result.facialTransformationMatrixes?.[0];
+    const matrix = result.facialTransformationMatrixes?.[primaryIndex];
     const headRotation = matrix ? extractEulerAnglesDeg(matrix) : null;
 
     return { points: smoothed, contours, blink, smile, mouthOpen, headRotation };

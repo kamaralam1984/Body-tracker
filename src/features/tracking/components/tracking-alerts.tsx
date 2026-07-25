@@ -9,7 +9,7 @@
  * <TrackingAlerts />
  */
 
-import { AlertTriangle, CameraOff, EyeOff, UserX } from "lucide-react";
+import { AlertTriangle, CameraOff, EyeOff, Users, UserX } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCameraContext } from "@/features/camera";
@@ -59,6 +59,13 @@ export function TrackingAlerts({ className }: { className?: string }) {
     live.postureScoreLive < POOR_POSTURE_THRESHOLD
   ) {
     alerts.push({ id: "poor-posture", icon: AlertTriangle, message: "Poor posture detected" });
+  }
+  if (live.faceCount > 1) {
+    alerts.push({
+      id: "multiple-people",
+      icon: Users,
+      message: `Multiple people detected (${live.faceCount})`,
+    });
   }
 
   if (alerts.length === 0) return null;

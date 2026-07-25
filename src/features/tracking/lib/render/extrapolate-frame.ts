@@ -41,6 +41,7 @@ export function extrapolateTrackingFrame(
     face: extrapolateFace(prev.face, curr.face, a),
     hands: extrapolateHands(prev.hands, curr.hands, a),
     pose: extrapolatePose(prev.pose, curr.pose, a),
+    faceCount: curr.faceCount,
   };
 }
 

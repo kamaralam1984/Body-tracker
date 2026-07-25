@@ -43,12 +43,29 @@ export interface CameraDeviceInfo {
   groupId?: string;
 }
 
+export type FacingMode = "user" | "environment";
+
+/** 0-100 scale, 50 = neutral/unmodified — mapped to real CSS `filter()` percentages in camera-preview.tsx. */
+export interface ImageAdjustments {
+  brightness: number;
+  contrast: number;
+  saturation: number;
+}
+
+export const DEFAULT_IMAGE_ADJUSTMENTS: ImageAdjustments = {
+  brightness: 50,
+  contrast: 50,
+  saturation: 50,
+};
+
 export interface CameraSettingsState {
   deviceId?: string;
   resolution: ResolutionPreset;
   frameRate: number;
   mirrored: boolean;
   autoStart: boolean;
+  facingMode?: FacingMode;
+  adjustments: ImageAdjustments;
 }
 
 export interface CameraStats {
@@ -60,10 +77,30 @@ export interface CameraStats {
   startedAt: number | null;
 }
 
+// Non-standard Media Capture/Image Capture extensions (Chrome/Android only)
+// that TypeScript's DOM lib doesn't declare — zoom/torch/exposure/focus are
+// real, shipped browser features, just not yet part of the stable spec
+// TS ships types for. Declared locally rather than widening the global lib.
+export interface ExtendedMediaTrackCapabilities extends MediaTrackCapabilities {
+  zoom?: { min: number; max: number; step: number };
+  torch?: boolean;
+  focusMode?: string[];
+  exposureMode?: string[];
+}
+
+export interface ExtendedMediaTrackConstraintSet extends MediaTrackConstraintSet {
+  zoom?: number;
+  torch?: boolean;
+  focusMode?: string;
+  exposureMode?: string;
+}
+
 export const DEFAULT_CAMERA_SETTINGS: CameraSettingsState = {
   deviceId: undefined,
   resolution: "1080p",
   frameRate: 30,
   mirrored: true,
   autoStart: false,
+  facingMode: undefined,
+  adjustments: DEFAULT_IMAGE_ADJUSTMENTS,
 };

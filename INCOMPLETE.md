@@ -2,41 +2,48 @@
 
 Is file me woh sab kaam list hai jo user ne 15-section spec me maanga tha (camera controls, AI model controls, live stats, face/hand/pose analytics, timeline, alerts, session summary, recording, developer mode, visualization modes, AI insights, export, premium UI). Har item ka status yahan update hota rahega jaise-jaise kaam poora hota jaye.
 
-**Status legend:** `[ ]` pending · `[~]` in progress · `[x]` done · `[skip]` jaanbhoojkar nahi kar rahe (wajah likhi hai)
+**Status legend:** `[ ]` pending · `[x]` done · `[skip]` jaanbhoojkar nahi kar rahe (wajah likhi hai)
 
 ---
 
-## Phase 1 — High value, kam kaam (data already backend me hai, bas live camera page pe dikhana hai) ✅ DONE
+## Phase 1 — Live camera-page panels ✅ DONE
 
-- [x] Live Session Summary card (camera page pe): duration, active/idle time, blink count, gesture count, avg/highest/lowest attention, exercise count, calories estimate — `session-summary-card.tsx`
-- [x] Live Timeline (camera page pe): real-time events — gestures, "Left the frame", "Looked away", "Eyes closed", "Exercise started", "Rep completed" — `live-timeline.tsx` (reuses existing `Timeline` UI primitive)
-- [x] Smart Alerts banner: No face detected, Eyes closed too long, Poor posture detected, Camera disconnected — `tracking-alerts.tsx`
-- [x] Live Face analytics numbers on camera page: head pitch/roll/yaw, blink count/rate, smile, mouth open, looking-away, face-lost timer — `face-analytics-card.tsx`
-- [x] Live Hand analytics (jab Hand mode ON ho): left/right hand visibility, current gesture name, gesture count — `hand-analytics-card.tsx` (finger count/pinch distance/wrist rotation/hand speed abhi nahi hain, needed to bad next round agar chahiye)
-- [x] Live Pose analytics (jab Pose mode ON ho): sitting/standing/idle (live preview) + current-set reps + exercise set count — `pose-analytics-card.tsx` (walking/running sirf server-side historical `/intelligence/movement` pe hai, live glance me nahi — gait cadence ke liye lamba window chahiye)
+- [x] Live Session Summary card — `session-summary-card.tsx`
+- [x] Live Timeline — `live-timeline.tsx`
+- [x] Smart Alerts (no face / eyes closed / poor posture / camera disconnected) — `tracking-alerts.tsx`
+- [x] Live Face analytics — `face-analytics-card.tsx`
+- [x] Live Hand analytics — `hand-analytics-card.tsx`
+- [x] Live Pose analytics — `pose-analytics-card.tsx`
 
-## Phase 2 — Value hai, bada kaam (naya build chahiye)
+## Phase 2 — Camera hardware, export, live insights ✅ DONE
 
-- [ ] AI Insights Panel — live version ("Attention improving", "Blink rate low", jaisa — rule-based, existing insight-engine style se milta-julta)
-- [ ] Landmark/Pose/Hand data export — JSON aur CSV (video recording nahi, sirf tracking data)
-- [ ] Fake brightness/contrast sliders ko real karna (ya UI se hata dena — abhi placeholder hain, kaam nahi karte)
-- [ ] Mobile camera flip button (front/back camera switch — abhi sirf generic device-selector hai)
-- [ ] Camera controls gaps: microphone selector, camera-flip button
+- [x] Brightness/contrast/saturation are now REAL (CSS `filter` on the preview `<video>`, `camera-preview.tsx`) — removed the 4th fake "noise reduction" slider (no honest equivalent exists)
+- [x] Zoom / Torch / Auto-exposure / Auto-focus — real `track.getCapabilities()`/`applyConstraints()`, each control only appears if the active device actually reports support — `camera-advanced-controls.tsx`
+- [x] Camera flip (front/back) — `camera-flip-button.tsx`, `facingMode` constraint
+- [x] Video recording (local `.webm` download, never uploaded) + optional microphone — `use-session-recording.ts`, `recording-export-panel.tsx`
+- [x] JSON/CSV export of session summary + timeline, capped opt-in raw-landmark sample log — same panel
+- [x] Shared `src/lib/download-file.ts` (deduped 3 of the 4 places that reimplemented blob-download)
+- [x] Live AI Insights panel — same rule-based algorithm as the server's `analytics-service.ts`, reimplemented client-side over this session's live scores — `build-live-insights.ts`, `live-insights-panel.tsx`
 
-## Phase 3 — Skip / Deferred (low value ya genuinely browser me possible nahi)
+## Phase 3 — Visualization modes, Developer Mode, multi-person ✅ DONE (scoped, see notes)
 
-- [skip] CPU/GPU/Memory usage — browser koi real API nahi deta iske liye; fake number dikhana galat hoga (app ka poora principle hi "kabhi fabricate mat karo" raha hai)
-- [skip] Zoom / Torch / Auto-exposure / Auto-focus — device/browser-dependent, bahut unreliable, high effort low payoff
-- [skip] Developer Mode (raw landmark IDs, camera matrix, bounding boxes, debug logs) — sirf internal debugging ke liye, end-user product ke liye nahi
-- [skip] Visualization modes (wireframe/heatmap/landmark-ID overlay) — current premium silhouette look jaanbhoojkar simple rakha gaya hai
-- [skip] Multiple-people detection — abhi tracking sirf 1 face ke liye configured hai (`numFaces: 1`), badalna architecture change hai
-- [skip] Video recording (raw camera footage save karna) — privacy angle pehle sochna hai (abhi "video kabhi server pe nahi jata" hi selling point hai)
-- [skip] Poori "Premium UI" redesign ek saath — zyada tar primitives (progress rings, charts, theme, collapsible panels) already available hain; page-by-page apply karna better hai ek bade redesign project se
+- [x] Visualization modes: Camera only, Skeleton (default), Wireframe, Landmark IDs, Bounding boxes, Confidence overlay — `render-modes.ts`, switcher in `render-mode-selector.tsx`. "Transparent" = Camera-only (same thing); "Heatmap" = folded into Confidence overlay (only pose has real per-point confidence to color by — face/hand don't, documented in code).
+- [x] Developer Mode panel (off by default) — FPS graph, real processing-time/frame, raw coordinates, bounding boxes, recent-events log — `developer-mode-panel.tsx`
+- [x] Honest system stats — processing time, detection FPS, CPU core count, JS heap memory (Chrome-only) — same panel. **No fabricated CPU%/GPU%** — no browser API provides that; showing one would mean making up a number, which this app never does.
+- [x] Multiple-people detection — scoped to a **count + alert**, not independent per-person dashboards (that would redefine this single-subject product) — `faceCount` on `TrackingFrame`, "Multiple people detected" alert.
 
 ---
 
-## Already Done (is spec se pehle hi ban chuka tha)
+## Honest final gap-check against the original 15-section spec
 
-- [x] Camera selector, Resolution (480p–4K), FPS selector, Mirror mode, Fullscreen, Screenshot
-- [x] Session replay + JSON/CSV/PDF export (session-management feature me, alag page pe)
-- [x] Real Attention / Posture / Wellness / Movement dashboards (post-session, `/intelligence/*`)
+Everything above is genuinely working, not a placeholder. These are the specific items from the original spec that are **still missing** — listed plainly rather than silently dropped:
+
+- [ ] **Segmentation / Object Detection** models — different MediaPipe tasks entirely, not wired up at all
+- [ ] Per-model **Confidence** numbers and **Model Version** display — deliberately not shown (this app's whole design principle is never surfacing raw confidence as a false-precision number); version could be a simple label if wanted
+- [ ] **Face distance/size**, **Eye contact** (vs. looking-away), **Wrist rotation**, **Hand speed**, **Finger count**/**Pinch distance** as displayed numbers (used internally for gestures, not surfaced), **Body angle**, **Balance score**, **Movement speed** as a number — all would need new computer-vision math not built yet
+- [ ] **Low light detected**, **Face too close**, **Face too far** alerts — need new brightness/face-size heuristics
+- [ ] **Camera matrix** raw display in Developer Mode (the underlying data exists, just not surfaced)
+- [ ] **PDF report** / **"AI Analytics Report"** export specifically for a live camera session (PDF export exists elsewhere in the app for other data, not wired here; JSON export already covers the same analytics data)
+- [ ] Floating quick-actions, animated progress rings / gradient charts applied to the _new_ cards specifically, new keyboard shortcuts for recording, collapsible new panels — visual polish items, functional versions already exist
+
+None of these are silently faked — they're either real future work or a deliberate honesty-driven decision (documented above). Tell me if you want any of these picked up next.

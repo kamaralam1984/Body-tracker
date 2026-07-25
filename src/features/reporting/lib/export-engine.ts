@@ -10,18 +10,9 @@
  * opens natively, with zero vulnerable dependencies.
  */
 
-export type ExportRow = Record<string, string | number>;
+import { downloadFile as downloadBlob } from "@/lib/download-file";
 
-function downloadBlob(filename: string, blob: Blob): void {
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  document.body.appendChild(anchor);
-  anchor.click();
-  document.body.removeChild(anchor);
-  URL.revokeObjectURL(url);
-}
+export type ExportRow = Record<string, string | number>;
 
 function escapeCsvCell(value: string | number): string {
   const text = String(value);

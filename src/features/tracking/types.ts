@@ -72,6 +72,13 @@ export interface TrackingFrame {
   face: FaceTrackingResult | null;
   hands: HandTrackingResult[];
   pose: PoseTrackingResult | null;
+  /**
+   * How many faces the model detected this frame, not just the primary one
+   * tracked in `face` — every score/dashboard in this app is single-subject
+   * by design, so this only powers a "multiple people detected" alert, not
+   * independent per-person analytics.
+   */
+  faceCount: number;
 }
 
 export interface TrackingConfig {

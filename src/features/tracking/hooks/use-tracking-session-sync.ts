@@ -100,6 +100,8 @@ export interface LiveTrackingStats {
   idleSeconds: number; // time no face was detected
 
   faceDetected: boolean;
+  /** How many faces the model sees this frame — only ever used for a "multiple people detected" alert; every score above still tracks a single primary face. */
+  faceCount: number;
   headPitch: number | null;
   headYaw: number | null;
   headRoll: number | null;
@@ -136,6 +138,7 @@ function emptyLiveStats(): LiveTrackingStats {
     activeSeconds: 0,
     idleSeconds: 0,
     faceDetected: false,
+    faceCount: 0,
     headPitch: null,
     headYaw: null,
     headRoll: null,
@@ -466,6 +469,7 @@ export function useTrackingSessionSync({
         activeSeconds: elapsedSeconds * presentFraction,
         idleSeconds: elapsedSeconds * (1 - presentFraction),
         faceDetected: !!face,
+        faceCount: frameRef.current?.faceCount ?? 0,
         headPitch: face?.headRotation?.pitch ?? null,
         headYaw: face?.headRotation?.yaw ?? null,
         headRoll: face?.headRotation?.roll ?? null,

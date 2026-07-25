@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ChangeEvent } from "react";
+import type { ChangeEvent } from "react";
 import { Drawer } from "@/components/ui/drawer";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -10,37 +10,24 @@ import { useCameraContext } from "../context/camera-provider";
 import { DeviceSelector } from "./device-selector";
 import { ResolutionSelector } from "./resolution-selector";
 import { FpsSelector } from "./fps-selector";
+import { CameraAdvancedControls } from "./camera-advanced-controls";
+import type { ImageAdjustments } from "../types";
 
 interface CameraSettingsDrawerProps {
   open: boolean;
   onClose: () => void;
 }
 
-interface AdjustmentState {
-  brightness: number;
-  contrast: number;
-  saturation: number;
-  noiseReduction: number;
-}
-
-const DEFAULT_ADJUSTMENTS: AdjustmentState = {
-  brightness: 50,
-  contrast: 50,
-  saturation: 50,
-  noiseReduction: 50,
-};
-
 const SECTION_HEADING = "text-muted-foreground text-xs font-semibold tracking-wide uppercase";
 const SECTION_DIVIDER = "border-border-subtle flex flex-col gap-3 border-b pb-6";
 
 export function CameraSettingsDrawer({ open, onClose }: CameraSettingsDrawerProps) {
-  const { settings, setAutoStart, toggleMirror, resetSettings } = useCameraContext();
-  const [adjustments, setAdjustments] = useState<AdjustmentState>(DEFAULT_ADJUSTMENTS);
+  const { settings, setAutoStart, toggleMirror, resetSettings, setAdjustments } =
+    useCameraContext();
 
   const updateAdjustment =
-    (key: keyof AdjustmentState) => (event: ChangeEvent<HTMLInputElement>) => {
-      const value = Number(event.target.value);
-      setAdjustments((prev) => ({ ...prev, [key]: value }));
+    (key: keyof ImageAdjustments) => (event: ChangeEvent<HTMLInputElement>) => {
+      setAdjustments({ [key]: Number(event.target.value) });
     };
 
   return (
@@ -108,33 +95,31 @@ export function CameraSettingsDrawer({ open, onClose }: CameraSettingsDrawerProp
           </div>
         </section>
 
-        {/* Image adjustments (placeholder — not wired to real video processing) */}
-        <section className="flex flex-col gap-4">
-          <div className="flex flex-col gap-0.5">
-            <h3 className={SECTION_HEADING}>Image adjustments</h3>
-            <p className="text-muted-foreground text-xs">Visual adjustments — coming soon</p>
-          </div>
+        {/* Image adjustments — real CSS filters applied to the preview */}
+        <section className={SECTION_DIVIDER}>
+          <h3 className={SECTION_HEADING}>Image adjustments</h3>
 
           <AdjustmentSlider
             label="Brightness"
-            value={adjustments.brightness}
+            value={settings.adjustments.brightness}
             onChange={updateAdjustment("brightness")}
           />
           <AdjustmentSlider
             label="Contrast"
-            value={adjustments.contrast}
+            value={settings.adjustments.contrast}
             onChange={updateAdjustment("contrast")}
           />
           <AdjustmentSlider
             label="Saturation"
-            value={adjustments.saturation}
+            value={settings.adjustments.saturation}
             onChange={updateAdjustment("saturation")}
           />
-          <AdjustmentSlider
-            label="Noise reduction"
-            value={adjustments.noiseReduction}
-            onChange={updateAdjustment("noiseReduction")}
-          />
+        </section>
+
+        {/* Zoom / torch / auto-exposure / auto-focus — real hardware controls, feature-detected per device */}
+        <section className="flex flex-col gap-4">
+          <h3 className={SECTION_HEADING}>Advanced</h3>
+          <CameraAdvancedControls />
         </section>
       </div>
     </Drawer>
@@ -149,10 +134,8 @@ interface AdjustmentSliderProps {
 
 /**
  * Minimal inline range slider — local to this file only. There is no shared
- * Slider primitive in the design system yet. Left interactive (not
- * `disabled`) since these are cosmetic placeholders for a future phase, not
- * broken controls; the "coming soon" caption above communicates that intent
- * without the row reading as a dead/greyed-out control.
+ * Slider primitive in the design system yet. Drives a real CSS `filter()` on
+ * the preview `<video>` (see `camera-preview.tsx`), not a placeholder.
  */
 function AdjustmentSlider({ label, value, onChange }: AdjustmentSliderProps) {
   return (

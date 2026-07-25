@@ -20,10 +20,14 @@ import {
   useCameraContext,
 } from "@/features/camera";
 import {
+  DeveloperModePanel,
   FaceAnalyticsCard,
   HandAnalyticsCard,
+  LiveInsightsPanel,
   LiveTimeline,
   PoseAnalyticsCard,
+  RecordingExportPanel,
+  RenderModeSelector,
   SessionSummaryCard,
   TrackingAlerts,
   TrackingErrorEmptyState,
@@ -141,7 +145,10 @@ function CameraPageContent() {
             <FullscreenButton targetRef={fullscreenTargetRef} />
           </div>
 
-          <TrackingLegend />
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <TrackingLegend />
+            <RenderModeSelector className="w-44" />
+          </div>
 
           {screenshot && (
             <Card className="flex items-center gap-4 p-4">
@@ -186,6 +193,9 @@ function CameraPageContent() {
           <HandAnalyticsCard />
           <PoseAnalyticsCard />
           <LiveTimeline />
+          <LiveInsightsPanel />
+          <RecordingExportPanel />
+          <DeveloperModePanel />
 
           <Card>
             <CardHeader>

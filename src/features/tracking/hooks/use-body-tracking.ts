@@ -30,10 +30,18 @@ export interface UseBodyTrackingOptions {
   initialConfig?: Partial<TrackingConfig>;
 }
 
+export interface TrackingPerf {
+  /** Rolling average of real `performance.now()` deltas around `engine.detectFrame()` — genuinely measured, not estimated. */
+  processingTimeMs: number;
+  /** Detections actually completed per second over the last ~1s — distinct from the camera's own display FPS. */
+  detectionFps: number;
+}
+
 export interface UseBodyTrackingResult {
   status: TrackingStatus;
   frameRef: RefObject<TrackingFrame | null>;
   config: TrackingConfig;
+  perf: TrackingPerf;
   setModes: (modes: Set<TrackingMode>) => void;
   toggleMode: (mode: TrackingMode) => void;
   setQuality: (quality: TrackingConfig["quality"]) => void;
@@ -42,6 +50,9 @@ export interface UseBodyTrackingResult {
   /** Forces the engine to reinitialize even if modes/quality are unchanged — for a manual "try again" after an error. */
   retry: () => void;
 }
+
+const PERF_PUSH_INTERVAL_MS = 500;
+const PERF_SAMPLE_CAP = 60;
 
 function modesKeyOf(modes: Set<TrackingMode>): string {
   return Array.from(modes).sort().join(",");
@@ -61,6 +72,11 @@ export function useBodyTracking({
   const [retryToken, setRetryToken] = useState(0);
   const frameRef = useRef<TrackingFrame | null>(null);
   const engineRef = useRef<TrackingEngine | null>(null);
+  const perfSamplesRef = useRef<{ processingMs: number[]; frameTimestamps: number[] }>({
+    processingMs: [],
+    frameTimestamps: [],
+  });
+  const [perf, setPerf] = useState<TrackingPerf>({ processingTimeMs: 0, detectionFps: 0 });
 
   if (engineRef.current == null) {
     engineRef.current = new TrackingEngine(config);
@@ -118,6 +134,7 @@ export function useBodyTracking({
     let cancelled = false;
     let rafHandle: number | null = null;
     let vfcHandle: number | null = null;
+    let perfPushHandle: ReturnType<typeof setInterval> | null = null;
 
     function scheduleNext() {
       if (cancelled || !video) return;
@@ -133,8 +150,17 @@ export function useBodyTracking({
     function tick(timestampMs: number) {
       if (cancelled || !engine || !video) return;
       if (engine.isReady() && video.readyState >= video.HAVE_CURRENT_DATA) {
+        const start = performance.now();
         const result = engine.detectFrame(video, Math.round(timestampMs));
+        const processingMs = performance.now() - start;
         frameRef.current = result;
+
+        const samples = perfSamplesRef.current;
+        samples.processingMs.push(processingMs);
+        samples.frameTimestamps.push(performance.now());
+        if (samples.processingMs.length > PERF_SAMPLE_CAP) samples.processingMs.shift();
+        if (samples.frameTimestamps.length > PERF_SAMPLE_CAP) samples.frameTimestamps.shift();
+
         const nextStatus = engine.getStatus();
         setStatus((prev) => (prev === nextStatus ? prev : nextStatus));
       }
@@ -143,12 +169,28 @@ export function useBodyTracking({
 
     scheduleNext();
 
+    // Pushed to React state at a bounded rate — real detection runs at up
+    // to 30-60Hz, far too often to re-render on every sample.
+    perfPushHandle = setInterval(() => {
+      const samples = perfSamplesRef.current;
+      const avgProcessingMs =
+        samples.processingMs.length > 0
+          ? samples.processingMs.reduce((s, v) => s + v, 0) / samples.processingMs.length
+          : 0;
+      const timestamps = samples.frameTimestamps;
+      const windowSeconds =
+        timestamps.length > 1 ? (timestamps[timestamps.length - 1]! - timestamps[0]!) / 1000 : 0;
+      const detectionFps = windowSeconds > 0 ? (timestamps.length - 1) / windowSeconds : 0;
+      setPerf({ processingTimeMs: avgProcessingMs, detectionFps });
+    }, PERF_PUSH_INTERVAL_MS);
+
     return () => {
       cancelled = true;
       if (rafHandle !== null) cancelAnimationFrame(rafHandle);
       if (vfcHandle !== null && typeof video.cancelVideoFrameCallback === "function") {
         video.cancelVideoFrameCallback(vfcHandle);
       }
+      if (perfPushHandle !== null) clearInterval(perfPushHandle);
       frameRef.current = null;
     };
     // config.modes.size is intentionally represented by `modesKey` above.
@@ -197,6 +239,7 @@ export function useBodyTracking({
     status: effectiveStatus,
     frameRef,
     config,
+    perf,
     setModes,
     toggleMode,
     setQuality,

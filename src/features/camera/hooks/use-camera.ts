@@ -25,6 +25,10 @@ import type {
   CameraSettingsState,
   CameraStats,
   CameraStatus,
+  ExtendedMediaTrackCapabilities,
+  ExtendedMediaTrackConstraintSet,
+  FacingMode,
+  ImageAdjustments,
   ResolutionPreset,
 } from "../types";
 import { DEFAULT_CAMERA_SETTINGS } from "../types";
@@ -82,6 +86,13 @@ export interface UseCameraResult {
   setAutoStart: (value: boolean) => void;
   takeScreenshot: () => string | null;
   resetSettings: () => void;
+  setAdjustments: (adjustments: Partial<ImageAdjustments>) => void;
+  /** Real per-device support (zoom range, torch, exposure/focus modes) — `null` until a stream starts, feature-detected from `track.getCapabilities()`. Most desktop webcams report none of these; that's the honest answer, not a bug. */
+  capabilities: ExtendedMediaTrackCapabilities | null;
+  /** Calls `track.applyConstraints()` on the live video track for a capability found in `capabilities`. Silently no-ops if the device doesn't actually support it. */
+  applyTrackConstraints: (constraints: ExtendedMediaTrackConstraintSet) => Promise<void>;
+  /** Restarts the stream requesting the other-facing camera (mobile front/back) — a no-op `ideal` constraint, so unsupported devices just keep their current camera. */
+  flipFacing: () => Promise<void>;
 }
 
 export function useCamera(options: UseCameraOptions = {}): UseCameraResult {
@@ -94,6 +105,7 @@ export function useCamera(options: UseCameraOptions = {}): UseCameraResult {
     ...options.initialSettings,
   });
   const [stats, setStats] = useState<CameraStats>(EMPTY_STATS);
+  const [capabilities, setCapabilities] = useState<ExtendedMediaTrackCapabilities | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -137,6 +149,7 @@ export function useCamera(options: UseCameraOptions = {}): UseCameraResult {
       const dims = getResolutionDimensions(merged.resolution);
       const video: MediaTrackConstraints = { frameRate: { ideal: merged.frameRate } };
       if (merged.deviceId) video.deviceId = { exact: merged.deviceId };
+      if (merged.facingMode) video.facingMode = { ideal: merged.facingMode };
       if (dims?.width && dims?.height) {
         video.width = { ideal: dims.width };
         video.height = { ideal: dims.height };
@@ -187,6 +200,11 @@ export function useCamera(options: UseCameraOptions = {}): UseCameraResult {
         if (overrides) setSettings((prev) => ({ ...prev, ...overrides }));
 
         const track = next.getVideoTracks()[0];
+        try {
+          setCapabilities((track?.getCapabilities?.() as ExtendedMediaTrackCapabilities) ?? null);
+        } catch {
+          setCapabilities(null);
+        }
         track?.addEventListener("ended", () => {
           setStatus((prev) => (prev === "stopped" || prev === "paused" ? prev : "reconnecting"));
 
@@ -250,6 +268,7 @@ export function useCamera(options: UseCameraOptions = {}): UseCameraResult {
     if (videoRef.current) videoRef.current.srcObject = null;
     setStatus("stopped");
     setStats(EMPTY_STATS);
+    setCapabilities(null);
   }, [stopTracks]);
 
   const pause = useCallback(() => {
@@ -277,6 +296,33 @@ export function useCamera(options: UseCameraOptions = {}): UseCameraResult {
   const resetSettings = useCallback(() => {
     setSettings(DEFAULT_CAMERA_SETTINGS);
   }, []);
+
+  const setAdjustments = useCallback((adjustments: Partial<ImageAdjustments>) => {
+    setSettings((prev) => ({ ...prev, adjustments: { ...prev.adjustments, ...adjustments } }));
+  }, []);
+
+  // Real per-track hardware constraint (zoom/torch/exposure/focus) — a no-op
+  // on the majority of devices that don't support a given field; callers
+  // gate on `capabilities` before ever showing the control, so silently
+  // swallowing an unsupported constraint here is the right behavior, not an
+  // error to surface.
+  const applyTrackConstraints = useCallback(
+    async (constraints: ExtendedMediaTrackConstraintSet) => {
+      const track = streamRef.current?.getVideoTracks()[0];
+      if (!track) return;
+      try {
+        await track.applyConstraints({ advanced: [constraints] });
+      } catch {
+        // Unsupported on this device/browser.
+      }
+    },
+    [],
+  );
+
+  const flipFacing = useCallback(async () => {
+    const next: FacingMode = settings.facingMode === "environment" ? "user" : "environment";
+    await startInternal({ facingMode: next });
+  }, [settings.facingMode, startInternal]);
 
   const takeScreenshot = useCallback((): string | null => {
     const video = videoRef.current;
@@ -396,5 +442,9 @@ export function useCamera(options: UseCameraOptions = {}): UseCameraResult {
     setAutoStart,
     takeScreenshot,
     resetSettings,
+    setAdjustments,
+    capabilities,
+    applyTrackConstraints,
+    flipFacing,
   };
 }
