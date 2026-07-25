@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-typecheck-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build
+        env:
+          BTK_JWT_SECRET: ci-build-only-secret
+
+      - name: API integration tests
+        run: |
+          npm run start -- -p 3045 &
+          npx wait-on http://localhost:3045/api/v1/health --timeout 30000
+          node scripts/api-tests.mjs
+        env:
+          BTK_JWT_SECRET: ci-integration-test-secret
+          BTK_API_BASE_URL: http://localhost:3045
+
+  docker-build:
+    runs-on: ubuntu-latest
+    needs: lint-typecheck-build
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image (not pushed)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: body-tracker:ci

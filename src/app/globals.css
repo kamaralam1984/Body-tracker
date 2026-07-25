@@ -1,0 +1,438 @@
+@import "tailwindcss";
+
+/* ============================================================
+   DESIGN SYSTEM — centralized tokens
+   Every color, radius, shadow, spacing, and motion value used
+   across the product is defined once, here, and consumed via
+   Tailwind utilities (bg-*, text-*, rounded-*, shadow-*, ease-*).
+   ============================================================ */
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* ---- Neutral scale (cool, slightly blue-tinted gray) ---- */
+  --neutral-0: oklch(1 0 0);
+  --neutral-50: oklch(0.984 0.003 247.858);
+  --neutral-100: oklch(0.968 0.007 247.896);
+  --neutral-150: oklch(0.95 0.009 250);
+  --neutral-200: oklch(0.929 0.013 255.508);
+  --neutral-300: oklch(0.869 0.022 252.894);
+  --neutral-400: oklch(0.704 0.04 256.788);
+  --neutral-500: oklch(0.554 0.046 257.417);
+  --neutral-600: oklch(0.446 0.043 257.281);
+  --neutral-700: oklch(0.372 0.044 257.287);
+  --neutral-800: oklch(0.279 0.041 260.031);
+  --neutral-850: oklch(0.232 0.04 261);
+  --neutral-900: oklch(0.208 0.042 265.755);
+  --neutral-950: oklch(0.129 0.042 264.695);
+
+  /* ---- Accent (muted, professional indigo-blue) ---- */
+  --accent-50: oklch(0.97 0.01 258);
+  --accent-100: oklch(0.94 0.02 258);
+  --accent-200: oklch(0.885 0.038 258);
+  --accent-300: oklch(0.8 0.062 258);
+  --accent-400: oklch(0.7 0.088 258);
+  --accent-500: oklch(0.585 0.118 258);
+  --accent-600: oklch(0.5 0.13 258);
+  --accent-700: oklch(0.42 0.12 258);
+  --accent-800: oklch(0.35 0.098 258);
+  --accent-900: oklch(0.29 0.075 258);
+  --accent-950: oklch(0.2 0.05 258);
+
+  /* ---- Font-size preference multiplier (Settings → Appearance) ---- */
+  --font-size-scale: 1;
+
+  /* ---- Semantic colors (muted, accessible) ---- */
+  --success-50: oklch(0.965 0.02 152);
+  --success-500: oklch(0.6 0.11 152);
+  --success-600: oklch(0.5 0.11 152);
+
+  --warning-50: oklch(0.97 0.025 85);
+  --warning-500: oklch(0.7 0.13 78);
+  --warning-600: oklch(0.58 0.14 70);
+
+  --danger-50: oklch(0.97 0.02 20);
+  --danger-500: oklch(0.58 0.18 25);
+  --danger-600: oklch(0.5 0.19 25);
+
+  --info-50: oklch(0.97 0.018 235);
+  --info-500: oklch(0.6 0.11 235);
+  --info-600: oklch(0.51 0.12 235);
+
+  /* ---- Surface / semantic mapping (light mode) ---- */
+  --background: var(--neutral-0);
+  --foreground: var(--neutral-900);
+  --surface: var(--neutral-0);
+  --surface-elevated: var(--neutral-0);
+  --surface-sunken: var(--neutral-50);
+  --muted: var(--neutral-100);
+  --muted-foreground: var(--neutral-500);
+  --border: var(--neutral-200);
+  --border-subtle: var(--neutral-150);
+  --ring: var(--accent-500);
+
+  --primary: var(--neutral-900);
+  --primary-foreground: var(--neutral-0);
+  --accent: var(--accent-500);
+  --accent-foreground: var(--neutral-0);
+
+  --success: var(--success-500);
+  --success-foreground: var(--neutral-0);
+  --success-bg: var(--success-50);
+  --warning: var(--warning-500);
+  --warning-foreground: var(--neutral-900);
+  --warning-bg: var(--warning-50);
+  --danger: var(--danger-500);
+  --danger-foreground: var(--neutral-0);
+  --danger-bg: var(--danger-50);
+  --info: var(--info-500);
+  --info-foreground: var(--neutral-0);
+  --info-bg: var(--info-50);
+
+  /* ---- Radius scale ---- */
+  --radius-xs: 0.375rem;
+  --radius-sm: 0.5rem;
+  --radius-md: 0.625rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.25rem;
+
+  /* ---- Elevation (soft, layered, low-opacity shadows) ---- */
+  --shadow-color: 220 20% 10%;
+  --shadow-xs: 0 1px 2px hsl(var(--shadow-color) / 0.04);
+  --shadow-sm: 0 1px 2px hsl(var(--shadow-color) / 0.05), 0 1px 1px hsl(var(--shadow-color) / 0.03);
+  --shadow-md:
+    0 4px 8px -2px hsl(var(--shadow-color) / 0.06), 0 2px 4px -2px hsl(var(--shadow-color) / 0.04);
+  --shadow-lg:
+    0 12px 24px -6px hsl(var(--shadow-color) / 0.08), 0 4px 8px -4px hsl(var(--shadow-color) / 0.04);
+  --shadow-xl:
+    0 24px 48px -12px hsl(var(--shadow-color) / 0.12),
+    0 8px 16px -8px hsl(var(--shadow-color) / 0.06);
+  --shadow-2xl: 0 32px 64px -16px hsl(var(--shadow-color) / 0.18);
+
+  /* ---- Motion ---- */
+  --ease-premium: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-premium-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-standard: cubic-bezier(0.65, 0, 0.35, 1);
+  --duration-instant: 100ms;
+  --duration-fast: 150ms;
+  --duration-base: 250ms;
+  --duration-slow: 400ms;
+  --duration-slower: 600ms;
+}
+
+.dark {
+  --background: var(--neutral-950);
+  --foreground: var(--neutral-100);
+  --surface: var(--neutral-900);
+  --surface-elevated: var(--neutral-850);
+  --surface-sunken: oklch(0.11 0.035 265);
+  --muted: var(--neutral-850);
+  --muted-foreground: var(--neutral-400);
+  --border: var(--neutral-800);
+  --border-subtle: oklch(0.24 0.035 262);
+  --ring: var(--accent-400);
+
+  --primary: var(--neutral-100);
+  --primary-foreground: var(--neutral-900);
+  --accent: var(--accent-500);
+  --accent-foreground: var(--neutral-0);
+
+  --success-bg: oklch(0.24 0.045 152);
+  --warning-bg: oklch(0.28 0.05 78);
+  --danger-bg: oklch(0.27 0.06 25);
+  --info-bg: oklch(0.24 0.045 235);
+
+  --shadow-color: 220 40% 2%;
+  --shadow-xs: 0 1px 2px hsl(var(--shadow-color) / 0.3);
+  --shadow-sm: 0 1px 2px hsl(var(--shadow-color) / 0.35), 0 1px 1px hsl(var(--shadow-color) / 0.25);
+  --shadow-md:
+    0 4px 8px -2px hsl(var(--shadow-color) / 0.4), 0 2px 4px -2px hsl(var(--shadow-color) / 0.3);
+  --shadow-lg:
+    0 12px 24px -6px hsl(var(--shadow-color) / 0.45), 0 4px 8px -4px hsl(var(--shadow-color) / 0.3);
+  --shadow-xl:
+    0 24px 48px -12px hsl(var(--shadow-color) / 0.55),
+    0 8px 16px -8px hsl(var(--shadow-color) / 0.35);
+  --shadow-2xl: 0 32px 64px -16px hsl(var(--shadow-color) / 0.65);
+}
+
+/* ============================================================
+   ACCENT COLOR PREFERENCE (Settings → Appearance)
+   `data-accent` is set on <html> by `AppearanceEffects`. "Indigo"
+   is the app's built-in default (hue 258) and needs no override.
+   Every alternate keeps the EXACT SAME lightness/chroma progression
+   as the default scale and only rotates the hue — this preserves
+   the default palette's already-calibrated WCAG AA contrast at
+   every step, for every accent choice, in both themes (since the
+   base scale itself is theme-invariant — only `--accent`/
+   `--accent-foreground` differ per theme, unchanged here).
+   ============================================================ */
+:root[data-accent="blue"] {
+  --accent-50: oklch(0.97 0.01 230);
+  --accent-100: oklch(0.94 0.02 230);
+  --accent-200: oklch(0.885 0.038 230);
+  --accent-300: oklch(0.8 0.062 230);
+  --accent-400: oklch(0.7 0.088 230);
+  --accent-500: oklch(0.585 0.118 230);
+  --accent-600: oklch(0.5 0.13 230);
+  --accent-700: oklch(0.42 0.12 230);
+  --accent-800: oklch(0.35 0.098 230);
+  --accent-900: oklch(0.29 0.075 230);
+  --accent-950: oklch(0.2 0.05 230);
+}
+:root[data-accent="emerald"] {
+  --accent-50: oklch(0.97 0.01 155);
+  --accent-100: oklch(0.94 0.02 155);
+  --accent-200: oklch(0.885 0.038 155);
+  --accent-300: oklch(0.8 0.062 155);
+  --accent-400: oklch(0.7 0.088 155);
+  --accent-500: oklch(0.585 0.118 155);
+  --accent-600: oklch(0.5 0.13 155);
+  --accent-700: oklch(0.42 0.12 155);
+  --accent-800: oklch(0.35 0.098 155);
+  --accent-900: oklch(0.29 0.075 155);
+  --accent-950: oklch(0.2 0.05 155);
+}
+:root[data-accent="amber"] {
+  --accent-50: oklch(0.97 0.01 80);
+  --accent-100: oklch(0.94 0.02 80);
+  --accent-200: oklch(0.885 0.038 80);
+  --accent-300: oklch(0.8 0.062 80);
+  --accent-400: oklch(0.7 0.088 80);
+  --accent-500: oklch(0.585 0.118 80);
+  --accent-600: oklch(0.5 0.13 80);
+  --accent-700: oklch(0.42 0.12 80);
+  --accent-800: oklch(0.35 0.098 80);
+  --accent-900: oklch(0.29 0.075 80);
+  --accent-950: oklch(0.2 0.05 80);
+}
+:root[data-accent="rose"] {
+  --accent-50: oklch(0.97 0.01 20);
+  --accent-100: oklch(0.94 0.02 20);
+  --accent-200: oklch(0.885 0.038 20);
+  --accent-300: oklch(0.8 0.062 20);
+  --accent-400: oklch(0.7 0.088 20);
+  --accent-500: oklch(0.585 0.118 20);
+  --accent-600: oklch(0.5 0.13 20);
+  --accent-700: oklch(0.42 0.12 20);
+  --accent-800: oklch(0.35 0.098 20);
+  --accent-900: oklch(0.29 0.075 20);
+  --accent-950: oklch(0.2 0.05 20);
+}
+:root[data-accent="neutral"] {
+  --accent-50: oklch(0.97 0 0);
+  --accent-100: oklch(0.94 0 0);
+  --accent-200: oklch(0.885 0 0);
+  --accent-300: oklch(0.8 0 0);
+  --accent-400: oklch(0.7 0 0);
+  --accent-500: oklch(0.585 0 0);
+  --accent-600: oklch(0.5 0 0);
+  --accent-700: oklch(0.42 0 0);
+  --accent-800: oklch(0.35 0 0);
+  --accent-900: oklch(0.29 0 0);
+  --accent-950: oklch(0.2 0 0);
+}
+
+/* ============================================================
+   FONT SIZE PREFERENCE (Settings → Appearance)
+   Scales the document root font-size; every `rem`-based utility
+   in the app (i.e. virtually all of them) cascades from this, so
+   this is a genuine, app-wide effect, not a settings-page-only one.
+   ============================================================ */
+html[data-font-size="sm"] {
+  --font-size-scale: 0.9375;
+}
+html[data-font-size="lg"] {
+  --font-size-scale: 1.0625;
+}
+html {
+  font-size: calc(16px * var(--font-size-scale));
+}
+
+@theme inline {
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-border-subtle: var(--border-subtle);
+  --color-ring: var(--ring);
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  --color-accent-50: var(--accent-50);
+  --color-accent-100: var(--accent-100);
+  --color-accent-200: var(--accent-200);
+  --color-accent-300: var(--accent-300);
+  --color-accent-400: var(--accent-400);
+  --color-accent-500: var(--accent-500);
+  --color-accent-600: var(--accent-600);
+  --color-accent-700: var(--accent-700);
+  --color-accent-800: var(--accent-800);
+  --color-accent-900: var(--accent-900);
+  --color-accent-950: var(--accent-950);
+
+  --color-neutral-0: var(--neutral-0);
+  --color-neutral-50: var(--neutral-50);
+  --color-neutral-100: var(--neutral-100);
+  --color-neutral-150: var(--neutral-150);
+  --color-neutral-200: var(--neutral-200);
+  --color-neutral-300: var(--neutral-300);
+  --color-neutral-400: var(--neutral-400);
+  --color-neutral-500: var(--neutral-500);
+  --color-neutral-600: var(--neutral-600);
+  --color-neutral-700: var(--neutral-700);
+  --color-neutral-800: var(--neutral-800);
+  --color-neutral-850: var(--neutral-850);
+  --color-neutral-900: var(--neutral-900);
+  --color-neutral-950: var(--neutral-950);
+
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-success-bg: var(--success-bg);
+  --color-success-50: var(--success-50);
+  --color-success-500: var(--success-500);
+  --color-success-600: var(--success-600);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning-bg: var(--warning-bg);
+  --color-warning-50: var(--warning-50);
+  --color-warning-500: var(--warning-500);
+  --color-warning-600: var(--warning-600);
+  --color-danger: var(--danger);
+  --color-danger-foreground: var(--danger-foreground);
+  --color-danger-bg: var(--danger-bg);
+  --color-danger-50: var(--danger-50);
+  --color-danger-500: var(--danger-500);
+  --color-danger-600: var(--danger-600);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-info-bg: var(--info-bg);
+  --color-info-50: var(--info-50);
+  --color-info-500: var(--info-500);
+  --color-info-600: var(--info-600);
+
+  --radius-xs: var(--radius-xs);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+  --radius-2xl: var(--radius-2xl);
+
+  --shadow-xs: var(--shadow-xs);
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+  --shadow-xl: var(--shadow-xl);
+  --shadow-2xl: var(--shadow-2xl);
+
+  --ease-premium: var(--ease-premium);
+  --ease-premium-in: var(--ease-premium-in);
+  --ease-standard: var(--ease-standard);
+
+  --animate-fade-in: fade-in var(--duration-base) var(--ease-premium);
+  --animate-scale-in: scale-in var(--duration-fast) var(--ease-premium);
+  --animate-slide-up: slide-up var(--duration-base) var(--ease-premium);
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes scale-in {
+    from {
+      opacity: 0;
+      transform: scale(0.96);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+  @keyframes slide-up {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  html {
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
+  body {
+    background: var(--color-background);
+    color: var(--color-foreground);
+    font-feature-settings: "cv11", "ss01";
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background: var(--color-accent-200);
+    color: var(--color-accent-900);
+  }
+
+  .dark ::selection {
+    background: var(--color-accent-800);
+    color: var(--color-accent-50);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  /* Slim, unobtrusive scrollbars */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-neutral-300) transparent;
+  }
+  .dark * {
+    scrollbar-color: var(--color-neutral-700) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--color-neutral-300);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  .dark ::-webkit-scrollbar-thumb {
+    background-color: var(--color-neutral-700);
+    background-clip: content-box;
+  }
+}

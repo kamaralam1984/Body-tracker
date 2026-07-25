@@ -1,0 +1,303 @@
+// Production data model for the Body Tracker API Platform.
+//
+// This schema is the real persistence layer, backed by a real Neon
+// Postgres instance (connection config lives in prisma.config.ts and
+// .env.local — Prisma 7 no longer supports `datasource.url` directly in
+// the schema file). Route handlers under src/app/api/v1/** and their
+// src/server/services/* query this schema directly via the shared
+// PrismaClient singleton in src/server/db/prisma.ts.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  owner
+  admin
+  manager
+  member
+  viewer
+}
+
+enum UserStatus {
+  active
+  invited
+  suspended
+}
+
+enum Plan {
+  starter
+  growth
+  enterprise
+}
+
+enum TrackingStatus {
+  idle
+  active
+  paused
+  completed
+}
+
+enum TrackingEventType {
+  started
+  paused
+  resumed
+  rep
+  form_alert
+  completed
+}
+
+enum ReportFormat {
+  pdf
+  csv
+}
+
+enum ReportStatus {
+  queued
+  generating
+  ready
+  failed
+}
+
+enum WebhookEventType {
+  session_started
+  session_completed
+  tracking_form_alert
+  report_ready
+  user_invited
+}
+
+enum WebhookStatus {
+  active
+  disabled
+}
+
+enum ApiKeyStatus {
+  active
+  revoked
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  plan      Plan     @default(starter)
+  createdAt DateTime @default(now())
+
+  teams             Team[]
+  users             User[]
+  apiKeys           ApiKey[]
+  trackingSessions  TrackingSession[]
+  analyticsSnapshots AnalyticsSnapshot[]
+  reports           Report[]
+  webhooks          Webhook[]
+  auditLog          AuditLogEntry[]
+
+  @@map("organizations")
+}
+
+model Team {
+  id        String   @id @default(cuid())
+  orgId     String
+  name      String
+  createdAt DateTime @default(now())
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  users        User[]
+
+  @@index([orgId])
+  @@map("teams")
+}
+
+model User {
+  id           String     @id @default(cuid())
+  orgId        String
+  teamId       String?
+  email        String
+  passwordHash String
+  name         String
+  role         Role       @default(member)
+  status       UserStatus @default(active)
+  createdAt    DateTime   @default(now())
+
+  organization    Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  team            Team?             @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  refreshTokens   RefreshToken[]
+  apiKeys         ApiKey[]
+  trackingSessions TrackingSession[]
+  analyticsSnapshots AnalyticsSnapshot[]
+  reports         Report[]
+  auditLogEntries AuditLogEntry[]
+
+  @@unique([orgId, email])
+  @@index([orgId])
+  @@map("users")
+}
+
+model RefreshToken {
+  id         String    @id @default(cuid())
+  userId     String
+  tokenHash  String
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime
+  revokedAt  DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model ApiKey {
+  id                 String       @id @default(cuid())
+  orgId              String
+  userId             String
+  name               String
+  keyPrefix          String
+  keyHash            String       @unique
+  scopes             String[]
+  status             ApiKeyStatus @default(active)
+  rateLimitPerMinute Int          @default(120)
+  requestCount       Int          @default(0)
+  lastUsedAt         DateTime?
+  createdAt          DateTime     @default(now())
+  expiresAt          DateTime?
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("api_keys")
+}
+
+model TrackingSession {
+  id               String         @id @default(cuid())
+  orgId            String
+  userId           String
+  title            String
+  activityKind     String
+  status           TrackingStatus @default(idle)
+  startedAt        DateTime?
+  pausedAt         DateTime?
+  endedAt          DateTime?
+  durationSeconds  Int            @default(0)
+  repCount         Int            @default(0)
+  caloriesEstimate Int            @default(0)
+  avgFormScore     Float          @default(0)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  organization Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  events       TrackingEvent[]
+
+  @@index([orgId, status])
+  @@map("tracking_sessions")
+}
+
+model TrackingEvent {
+  id        String            @id @default(cuid())
+  sessionId String
+  type      TrackingEventType
+  message   String
+  data      Json
+  createdAt DateTime          @default(now())
+
+  session TrackingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@map("tracking_events")
+}
+
+model AnalyticsSnapshot {
+  id                String   @id @default(cuid())
+  orgId             String
+  userId            String
+  date              DateTime @db.Date
+  activeMinutes     Int
+  sessionsCompleted Int
+  repsTotal         Int
+  avgFormScore      Float
+  focusScore        Float
+  postureScore      Float
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([orgId, date])
+  @@map("analytics_snapshots")
+}
+
+model Report {
+  id          String       @id @default(cuid())
+  orgId       String
+  userId      String
+  title       String
+  format      ReportFormat
+  status      ReportStatus @default(queued)
+  periodStart DateTime
+  periodEnd   DateTime
+  createdAt   DateTime     @default(now())
+  readyAt     DateTime?
+  sizeBytes   Int?
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, status])
+  @@map("reports")
+}
+
+model Webhook {
+  id        String        @id @default(cuid())
+  orgId     String
+  url       String
+  secret    String
+  events    WebhookEventType[]
+  status    WebhookStatus @default(active)
+  createdAt DateTime      @default(now())
+
+  organization Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  deliveries   WebhookDelivery[]
+
+  @@index([orgId])
+  @@map("webhooks")
+}
+
+model WebhookDelivery {
+  id             String            @id @default(cuid())
+  webhookId      String
+  event          WebhookEventType
+  payload        Json
+  attempt        Int               @default(1)
+  status         String
+  responseStatus Int?
+  durationMs     Int?
+  createdAt      DateTime          @default(now())
+
+  webhook Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  @@index([webhookId, createdAt])
+  @@map("webhook_deliveries")
+}
+
+model AuditLogEntry {
+  id        String   @id @default(cuid())
+  orgId     String
+  actorId   String
+  action    String
+  target    String
+  metadata  Json
+  createdAt DateTime @default(now())
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  actor        User         @relation(fields: [actorId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, createdAt])
+  @@map("audit_log")
+}

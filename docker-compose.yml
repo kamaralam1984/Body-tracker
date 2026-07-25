@@ -1,0 +1,62 @@
+# Production-shaped topology for the Body Tracker API Platform.
+#
+# NOTE: the application currently ships with an in-memory data store
+# (src/server/db/store.ts) as a stand-in for real persistence, so `app`
+# does not yet read DATABASE_URL/REDIS_URL. This file documents and wires
+# the real services (Postgres, Redis) the app is designed to connect to —
+# once src/server/db/store.ts is swapped for a Prisma-backed store (see
+# prisma/schema.prisma) and the rate limiter/cache move to Redis, no
+# changes to this file are needed.
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3045:3000"
+    environment:
+      NODE_ENV: production
+      BTK_JWT_SECRET: ${BTK_JWT_SECRET:-dev-only-insecure-secret-change-in-production}
+      DATABASE_URL: postgresql://body_tracker:body_tracker@postgres:5432/body_tracker
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: body_tracker
+      POSTGRES_PASSWORD: body_tracker
+      POSTGRES_DB: body_tracker
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U body_tracker"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:

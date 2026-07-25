@@ -1,0 +1,88 @@
+name: Deploy
+
+# Runs after CI succeeds on main (staging, automatic) or manually
+# (production, requires approval via the `production` GitHub Environment's
+# required reviewers — configure that in repo Settings > Environments).
+# Both jobs deploy the SAME way: SSH in, pull, build, `pm2 reload` for a
+# zero-downtime cluster-mode rollout (see ecosystem.config.js). Requires
+# secrets: STAGING_HOST/PRODUCTION_HOST, DEPLOY_SSH_KEY, DEPLOY_USER —
+# none of which exist in this sandbox; this is the real, correct shape for
+# when they're configured. See docs/ops/production-deployment-guide.md.
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    branches: [main]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Environment to deploy"
+        required: true
+        default: staging
+        type: choice
+        options: [staging, production]
+
+jobs:
+  deploy-staging:
+    if: github.event.workflow_run.conclusion == 'success' || github.event.inputs.target == 'staging'
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to staging via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            cd /srv/body-tracker
+            git fetch origin main
+            git reset --hard origin/main
+            npm ci
+            npm run build
+            cp -r .next/static .next/standalone/.next/static
+            cp -r public .next/standalone/public
+            pm2 reload ecosystem.config.js --env production
+
+      - name: Verify staging health
+        run: |
+          sleep 5
+          curl -f https://staging.example.com/api/v1/health/ready
+
+  deploy-production:
+    if: github.event.inputs.target == 'production'
+    runs-on: ubuntu-latest
+    environment: production # gate this with required reviewers in repo settings
+    needs: []
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to production via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.PRODUCTION_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            cd /srv/body-tracker
+            git fetch origin main
+            git reset --hard origin/main
+            npm ci
+            npm run build
+            cp -r .next/static .next/standalone/.next/static
+            cp -r public .next/standalone/public
+            pm2 reload ecosystem.config.js --env production
+
+      - name: Verify production health
+        run: |
+          sleep 5
+          curl -f https://example.com/api/v1/health/ready
+
+      - name: Notify on failure
+        if: failure()
+        run: echo "Production deploy failed — see docs/ops/disaster-recovery-guide.md for the rollback procedure (scripts/rollback.sh)."

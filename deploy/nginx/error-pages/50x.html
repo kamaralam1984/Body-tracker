@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Body Tracker — Service temporarily unavailable</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #0a0a0f;
+    color: #e5e5ec;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    text-align: center;
+    padding: 24px;
+  }
+  .card { max-width: 28rem; display: flex; flex-direction: column; align-items: center; gap: 20px; }
+  .badge {
+    width: 56px; height: 56px; border-radius: 16px;
+    background: #1a1a24; display: flex; align-items: center; justify-content: center;
+  }
+  .badge svg { width: 24px; height: 24px; stroke: #8b8ba0; }
+  h1 { font-size: 1.25rem; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+  p { margin: 0; font-size: 0.9rem; color: #9999a8; line-height: 1.6; max-width: 24rem; }
+  .pill {
+    font-size: 0.75rem; color: #a5a5ee; background: rgba(99,102,241,0.12);
+    border: 1px solid rgba(99,102,241,0.3); border-radius: 999px; padding: 4px 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 9v4M12 17h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/>
+      </svg>
+    </div>
+    <h1>We'll be right back</h1>
+    <p>Body Tracker is temporarily unavailable — our team has been notified and is already on it. Please try again in a few minutes.</p>
+    <span class="pill">Status: reconnecting</span>
+  </div>
+</body>
+</html>

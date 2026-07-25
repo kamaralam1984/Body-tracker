@@ -1,0 +1,101 @@
+# Prometheus alerting rules for the Body Tracker platform.
+# Loaded by deploy/monitoring/prometheus.yml. Alerts pair with a real
+# Alertmanager instance (not included here — see docs/ops/monitoring-guide.md
+# for a pointer to wiring Slack/PagerDuty/email receivers).
+#
+# Rules against `btk_*` metrics are real and scrapeable today from
+# /api/v1/metrics. Rules against `up`, `node_*`, and `probe_*` require the
+# companion exporters noted inline (Prometheus's own blackbox_exporter and
+# node_exporter) — real, standard exporters this repo doesn't bundle since
+# they run outside the app.
+groups:
+  - name: body-tracker-app
+    rules:
+      - alert: BodyTrackerAppDown
+        expr: up{job="body-tracker-app"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Body Tracker app is down"
+          description: "Prometheus has failed to scrape /api/v1/metrics for over 1 minute."
+
+      - alert: BodyTrackerHighErrorRate
+        expr: |
+          sum(rate(btk_http_requests_total{status_class=~"5xx"}[5m]))
+          /
+          sum(rate(btk_http_requests_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Elevated 5xx error rate"
+          description: "More than 5% of requests have returned 5xx over the last 5 minutes."
+
+      - alert: BodyTrackerHighMemory
+        expr: btk_process_resident_memory_bytes > 900 * 1024 * 1024
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Body Tracker process memory is high"
+          description: "RSS has exceeded 900MB for 5 minutes — approaching PM2's max_memory_restart (512M per worker, so this fires only if a worker leaked past its own restart threshold, which is itself worth investigating)."
+
+      - alert: BodyTrackerRecentRestart
+        expr: btk_process_uptime_seconds < 60
+        labels:
+          severity: info
+        annotations:
+          summary: "Body Tracker process restarted"
+          description: "Process uptime is under a minute — either a deploy just happened or the process crashed and PM2 restarted it. Cross-check deploy logs."
+
+  # Requires node_exporter (https://github.com/prometheus/node_exporter)
+  # scraping the host — add a `node` job to prometheus.yml to enable these.
+  - name: body-tracker-host
+    rules:
+      - alert: HostDiskAlmostFull
+        expr: node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"} < 0.1
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Host disk usage above 90%"
+          description: "Less than 10% free space remains on / — database backups and logs will start failing."
+
+      - alert: HostHighCPU
+        expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 90
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Host CPU usage above 90%"
+          description: "Sustained high CPU can delay timer-driven long-lived connections (e.g. the tracking SSE stream) — see docs/ops/troubleshooting-guide.md."
+
+      - alert: HostHighMemory
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) > 0.9
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Host memory usage above 90%"
+
+  # Requires blackbox_exporter (https://github.com/prometheus/blackbox_exporter)
+  # configured to probe https://<domain> with module `http_2xx` / `tls_connect`.
+  - name: body-tracker-tls
+    rules:
+      - alert: SslCertExpiringSoon
+        expr: probe_ssl_earliest_cert_expiry - time() < 14 * 86400
+        labels:
+          severity: warning
+        annotations:
+          summary: "TLS certificate expires within 14 days"
+          description: "Let's Encrypt certbot should auto-renew before this fires under normal operation — treat this as a signal the renewal timer/cron itself may be broken."
+
+      - alert: SiteUnreachable
+        expr: probe_success{job="blackbox-https"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "HTTPS endpoint unreachable"
+          description: "The public HTTPS probe has failed for 2 minutes — check Nginx, DNS, and Cloudflare status."
