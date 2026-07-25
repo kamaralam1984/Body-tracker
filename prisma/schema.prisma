@@ -49,6 +49,8 @@ enum TrackingEventType {
   rep
   form_alert
   completed
+  distraction
+  drowsiness_alert
 }
 
 enum ReportFormat {
@@ -88,14 +90,15 @@ model Organization {
   plan      Plan     @default(starter)
   createdAt DateTime @default(now())
 
-  teams             Team[]
-  users             User[]
-  apiKeys           ApiKey[]
-  trackingSessions  TrackingSession[]
-  analyticsSnapshots AnalyticsSnapshot[]
-  reports           Report[]
-  webhooks          Webhook[]
-  auditLog          AuditLogEntry[]
+  teams                 Team[]
+  users                 User[]
+  apiKeys               ApiKey[]
+  trackingSessions      TrackingSession[]
+  trackingMetricSamples TrackingMetricSample[]
+  analyticsSnapshots    AnalyticsSnapshot[]
+  reports               Report[]
+  webhooks              Webhook[]
+  auditLog              AuditLogEntry[]
 
   @@map("organizations")
 }
@@ -124,14 +127,15 @@ model User {
   status       UserStatus @default(active)
   createdAt    DateTime   @default(now())
 
-  organization    Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  team            Team?             @relation(fields: [teamId], references: [id], onDelete: SetNull)
-  refreshTokens   RefreshToken[]
-  apiKeys         ApiKey[]
-  trackingSessions TrackingSession[]
-  analyticsSnapshots AnalyticsSnapshot[]
-  reports         Report[]
-  auditLogEntries AuditLogEntry[]
+  organization          Organization           @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  team                  Team?                  @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  refreshTokens         RefreshToken[]
+  apiKeys               ApiKey[]
+  trackingSessions      TrackingSession[]
+  trackingMetricSamples TrackingMetricSample[]
+  analyticsSnapshots    AnalyticsSnapshot[]
+  reports               Report[]
+  auditLogEntries       AuditLogEntry[]
 
   @@unique([orgId, email])
   @@index([orgId])
@@ -139,12 +143,12 @@ model User {
 }
 
 model RefreshToken {
-  id         String    @id @default(cuid())
-  userId     String
-  tokenHash  String
-  createdAt  DateTime  @default(now())
-  expiresAt  DateTime
-  revokedAt  DateTime?
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+  revokedAt DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -191,9 +195,10 @@ model TrackingSession {
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 
-  organization Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  events       TrackingEvent[]
+  organization  Organization           @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user          User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  events        TrackingEvent[]
+  metricSamples TrackingMetricSample[]
 
   @@index([orgId, status])
   @@map("tracking_sessions")
@@ -211,6 +216,54 @@ model TrackingEvent {
 
   @@index([sessionId, createdAt])
   @@map("tracking_events")
+}
+
+/**
+ * One row per ~10s window of live face-tracking during an active
+ * TrackingSession — the fine-grained signal the "Attention"/"Posture"/
+ * "Wellness" dashboards are computed from (see
+ * src/server/services/intelligence-metrics-service.ts). Raw landmarks never
+ * reach the server; the browser tallies these aggregates client-side (see
+ * src/features/tracking/hooks/use-tracking-session-sync.ts) and the scores
+ * are computed server-side on ingestion (src/app/api/v1/tracking/[sessionId]/metrics/route.ts)
+ * so the formulas can be tuned without a client redeploy.
+ */
+model TrackingMetricSample {
+  id        String @id @default(cuid())
+  orgId     String
+  userId    String
+  sessionId String
+
+  windowStart DateTime
+  windowEnd   DateTime
+
+  frameCount        Int
+  facePresentFrames Int
+
+  blinkCount           Int // discrete blink closures in this window
+  eyesClosedFrameCount Int // frames with eyes closed — PERCLOS numerator
+  longEyeClosureCount  Int // closures sustained >= LONG_CLOSURE_MS — microsleep proxy
+
+  avgHeadYawDev   Float // baseline-relative, degrees — computed client-side from the session's calibrated neutral pose
+  avgHeadPitchDev Float
+  avgHeadRollDev  Float
+  yawStdDev       Float
+  pitchStdDev     Float
+  rollStdDev      Float
+
+  attentionScore Float // 0-100, computed server-side — see intelligence-metrics-service.ts
+  postureScore   Float
+  fatigueScore   Float
+
+  createdAt DateTime @default(now())
+
+  organization Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session      TrackingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, userId, windowStart])
+  @@index([sessionId, windowStart])
+  @@map("tracking_metric_samples")
 }
 
 model AnalyticsSnapshot {
@@ -254,13 +307,13 @@ model Report {
 }
 
 model Webhook {
-  id        String        @id @default(cuid())
+  id        String             @id @default(cuid())
   orgId     String
   url       String
   secret    String
   events    WebhookEventType[]
-  status    WebhookStatus @default(active)
-  createdAt DateTime      @default(now())
+  status    WebhookStatus      @default(active)
+  createdAt DateTime           @default(now())
 
   organization Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
   deliveries   WebhookDelivery[]
@@ -270,15 +323,15 @@ model Webhook {
 }
 
 model WebhookDelivery {
-  id             String            @id @default(cuid())
+  id             String           @id @default(cuid())
   webhookId      String
   event          WebhookEventType
   payload        Json
-  attempt        Int               @default(1)
+  attempt        Int              @default(1)
   status         String
   responseStatus Int?
   durationMs     Int?
-  createdAt      DateTime          @default(now())
+  createdAt      DateTime         @default(now())
 
   webhook Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
 

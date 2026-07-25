@@ -6,6 +6,7 @@ import { conflict } from "@/server/http/errors";
 import { writeAudit } from "@/server/http/audit";
 import { getOrgSession } from "@/server/services/sessions-service";
 import { appendTrackingEvent, computeElapsedSeconds } from "@/server/services/tracking-service";
+import { recordSessionCompletion } from "@/server/services/analytics-snapshot-service";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +42,13 @@ export async function POST(
     await appendTrackingEvent(session.id, "completed", "Session completed", {
       durationSeconds: session.durationSeconds,
       repCount: session.repCount,
+    });
+
+    await recordSessionCompletion(principal.orgId, principal.userId, {
+      endedAt: session.endedAt ?? new Date(),
+      durationSeconds: session.durationSeconds,
+      repCount: session.repCount,
+      avgFormScore: session.avgFormScore,
     });
 
     writeAudit({

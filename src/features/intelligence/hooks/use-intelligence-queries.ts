@@ -4,25 +4,27 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import {
   fetchActivityQualityTrend,
-  fetchAttentionSnapshot,
   fetchBehaviorTimeline,
-  fetchDistractionEvents,
   fetchExerciseSets,
-  fetchFatigueSnapshot,
-  fetchFatigueTrend,
-  fetchFocusTimeline,
   fetchForecasts,
   fetchGestureEvents,
   fetchGestureSummaries,
   fetchInsights,
   fetchMovementPattern,
-  fetchPostureSnapshot,
-  fetchPostureTrend,
   fetchRecommendations,
   fetchWellnessSnapshot,
   fetchWellnessTrend,
   fetchWorkoutTrend,
 } from "../lib/mock-intelligence-service";
+import {
+  fetchAttentionSnapshot,
+  fetchDistractionEvents,
+  fetchFatigueSnapshot,
+  fetchFatigueTrend,
+  fetchFocusTimeline,
+  fetchPostureSnapshot,
+  fetchPostureTrend,
+} from "../lib/intelligence-service";
 import { useIntelligenceStore } from "../store/intelligence-store";
 
 export function useWellnessSnapshotQuery() {

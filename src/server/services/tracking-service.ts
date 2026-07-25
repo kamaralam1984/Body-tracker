@@ -20,7 +20,14 @@ import type { Prisma, TrackingEvent, TrackingEventType, TrackingSession } from "
 const CALORIES_PER_REP = 2;
 
 export type ApiTrackingEventType =
-  "started" | "paused" | "resumed" | "rep" | "form-alert" | "completed";
+  | "started"
+  | "paused"
+  | "resumed"
+  | "rep"
+  | "form-alert"
+  | "completed"
+  | "distraction"
+  | "drowsiness_alert";
 
 export type ApiTrackingEvent = Omit<TrackingEvent, "type"> & { type: ApiTrackingEventType };
 

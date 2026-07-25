@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { LogOut, Settings, User, CreditCard } from "lucide-react";
 import { Avatar } from "@/components/ui/avatar";
 import {
@@ -8,13 +9,20 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-
-const user = {
-  name: "Jordan Rivera",
-  email: "jordan@example.com",
-};
+import { useAuth } from "@/features/auth";
 
 export function ProfileMenu() {
+  const { user, logout } = useAuth();
+  const router = useRouter();
+
+  const displayName = user?.name ?? "Loading…";
+  const displayEmail = user?.email ?? "";
+
+  const handleLogout = async () => {
+    await logout();
+    router.push("/login");
+  };
+
   return (
     <DropdownMenu
       placement="bottom-end"
@@ -24,14 +32,14 @@ export function ProfileMenu() {
           aria-label="Open profile menu"
           className="flex items-center rounded-full transition-opacity duration-150 hover:opacity-80"
         >
-          <Avatar fallback={user.name} size="sm" status="online" />
+          <Avatar fallback={displayName} size="sm" status="online" />
         </button>
       }
     >
       <DropdownMenuLabel>
         <div className="flex flex-col gap-0.5 tracking-normal normal-case">
-          <span className="text-foreground text-sm font-medium">{user.name}</span>
-          <span className="text-muted-foreground text-xs">{user.email}</span>
+          <span className="text-foreground text-sm font-medium">{displayName}</span>
+          <span className="text-muted-foreground text-xs">{displayEmail}</span>
         </div>
       </DropdownMenuLabel>
       <DropdownMenuSeparator />
@@ -45,7 +53,7 @@ export function ProfileMenu() {
         Billing
       </DropdownMenuItem>
       <DropdownMenuSeparator />
-      <DropdownMenuItem icon={LogOut} destructive>
+      <DropdownMenuItem icon={LogOut} destructive onSelect={handleLogout}>
         Log out
       </DropdownMenuItem>
     </DropdownMenu>

@@ -18,6 +18,7 @@ import {
   type UseBodyTrackingOptions,
   type UseBodyTrackingResult,
 } from "../hooks/use-body-tracking";
+import { useTrackingSessionSync } from "../hooks/use-tracking-session-sync";
 
 const TrackingContext = createContext<UseBodyTrackingResult | null>(null);
 
@@ -27,6 +28,10 @@ interface TrackingProviderProps extends UseBodyTrackingOptions {
 
 export function TrackingProvider({ children, ...options }: TrackingProviderProps) {
   const tracking = useBodyTracking(options);
+  // Feeds real Attention/Posture/Wellness data from this session — see
+  // use-tracking-session-sync.ts. Deliberately a sibling to useBodyTracking,
+  // not inside it, so the core detection hook stays network-free.
+  useTrackingSessionSync({ frameRef: tracking.frameRef, active: options.active });
   return <TrackingContext.Provider value={tracking}>{children}</TrackingContext.Provider>;
 }
 

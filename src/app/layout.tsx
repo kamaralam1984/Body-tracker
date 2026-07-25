@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { ThemeProvider } from "@/providers/theme-provider";
 import { QueryProvider } from "@/providers/query-provider";
 import { ToastProvider } from "@/components/ui/toast";
+import { AuthProvider } from "@/features/auth";
 import { siteConfig } from "@/config/site";
 import "./globals.css";
 
@@ -45,8 +46,10 @@ export default function RootLayout({
       <body className="bg-background text-foreground flex min-h-full flex-col">
         <ThemeProvider>
           <QueryProvider>
-            {children}
-            <ToastProvider />
+            <AuthProvider>
+              {children}
+              <ToastProvider />
+            </AuthProvider>
           </QueryProvider>
         </ThemeProvider>
       </body>
