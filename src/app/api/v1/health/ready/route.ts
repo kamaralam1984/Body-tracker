@@ -1,16 +1,18 @@
 import { NextResponse } from "next/server";
 import { getEnv } from "@/server/env";
-import { getStore } from "@/server/db/store";
+import { getPrisma } from "@/server/db/prisma";
 
 export const dynamic = "force-dynamic";
 
 /**
  * Readiness probe — distinct from `/health` (pure liveness, always fast, no
- * dependency checks). This one validates environment configuration and that
- * the data layer is initialized, matching the container-orchestrator
- * convention of readiness (safe to receive traffic) vs. liveness (process
- * is alive, don't restart it) vs. startup (initial boot still in progress)
- * probes described in the Kubernetes/Docker health-check model.
+ * dependency checks). This one validates environment configuration and
+ * that the real Postgres database is actually reachable, matching the
+ * container-orchestrator convention of readiness (safe to receive
+ * traffic) vs. liveness (process is alive, don't restart it) vs. startup
+ * (initial boot still in progress) probes described in the Kubernetes/
+ * Docker health-check model. A real outage (bad credentials, Neon down,
+ * network partition) makes this correctly report `ready: false`.
  */
 export async function GET() {
   const checks: Record<string, { ok: boolean; detail?: string }> = {};
@@ -23,18 +25,15 @@ export async function GET() {
   }
 
   try {
-    const store = getStore();
-    checks.dataStore = { ok: store.organizations.size > 0 };
+    const prisma = await getPrisma();
+    await prisma.$queryRaw`SELECT 1`;
+    checks.database = { ok: true };
   } catch (error) {
-    checks.dataStore = {
+    checks.database = {
       ok: false,
       detail: error instanceof Error ? error.message : "unavailable",
     };
   }
-
-  // Real production checks against DATABASE_URL/REDIS_URL land here once
-  // src/server/db/store.ts is backed by Prisma+Redis instead of memory —
-  // there's nothing to ping in this sandbox's in-memory-store deployment.
 
   const ready = Object.values(checks).every((c) => c.ok);
   return NextResponse.json({ ready, checks }, { status: ready ? 200 : 503 });

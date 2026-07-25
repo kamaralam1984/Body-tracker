@@ -1,12 +1,21 @@
-import { getStore } from "@/server/db/store";
+import { getPrisma } from "@/server/db/prisma";
 import { ok } from "@/server/http/respond";
 import { snapshotMetrics } from "@/server/http/metrics";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const store = getStore();
+  const prisma = await getPrisma();
   const mem = process.memoryUsage();
+
+  const [organizations, users, trackingSessions, reports, webhooks, apiKeys] = await Promise.all([
+    prisma.organization.count(),
+    prisma.user.count(),
+    prisma.trackingSession.count(),
+    prisma.report.count(),
+    prisma.webhook.count(),
+    prisma.apiKey.count(),
+  ]);
 
   return ok({
     status: "operational",
@@ -18,13 +27,13 @@ export async function GET() {
     },
     metrics: snapshotMetrics(),
     dataStore: {
-      kind: "in-memory (production target: PostgreSQL via Prisma)",
-      organizations: store.organizations.size,
-      users: store.users.size,
-      trackingSessions: store.trackingSessions.size,
-      reports: store.reports.size,
-      webhooks: store.webhooks.size,
-      apiKeys: store.apiKeys.size,
+      kind: "postgresql (Neon, via Prisma)",
+      organizations,
+      users,
+      trackingSessions,
+      reports,
+      webhooks,
+      apiKeys,
     },
   });
 }

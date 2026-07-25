@@ -1,4 +1,4 @@
-import { getStore } from "@/server/db/store";
+import { getPrisma } from "@/server/db/prisma";
 import { snapshotMetrics } from "@/server/http/metrics";
 
 export const dynamic = "force-dynamic";
@@ -8,12 +8,26 @@ export const dynamic = "force-dynamic";
  * real Prometheus instance (see deploy/monitoring/prometheus.yml). Process
  * metrics come from Node's own `process` API; request counters are the same
  * ones every route increments via src/server/http/respond.ts's ok()/
- * errorResponse(); data-store gauges reflect the real in-memory store size.
+ * errorResponse(); data-store gauges reflect the real Postgres row counts.
+ *
+ * Note: request counters are per-PM2-worker-process (each cluster worker
+ * has its own in-memory counter, not aggregated across the cluster) — a
+ * real Prometheus setup scraping each worker or summing across instances
+ * handles this naturally; see docs/ops/monitoring-guide.md.
  */
 export async function GET() {
-  const store = getStore();
+  const prisma = await getPrisma();
   const metrics = snapshotMetrics();
   const mem = process.memoryUsage();
+
+  const [organizations, users, trackingSessions, reports, webhooks, apiKeys] = await Promise.all([
+    prisma.organization.count(),
+    prisma.user.count(),
+    prisma.trackingSession.count(),
+    prisma.report.count(),
+    prisma.webhook.count(),
+    prisma.apiKey.count(),
+  ]);
 
   const lines: string[] = [
     "# HELP btk_process_uptime_seconds Process uptime in seconds.",
@@ -34,14 +48,14 @@ export async function GET() {
       ([bucket, count]) => `btk_http_requests_total{status_class="${bucket}"} ${count}`,
     ),
 
-    "# HELP btk_datastore_records Records currently held per entity in the data store.",
+    "# HELP btk_datastore_records Records currently held per entity in the database.",
     "# TYPE btk_datastore_records gauge",
-    `btk_datastore_records{entity="organizations"} ${store.organizations.size}`,
-    `btk_datastore_records{entity="users"} ${store.users.size}`,
-    `btk_datastore_records{entity="tracking_sessions"} ${store.trackingSessions.size}`,
-    `btk_datastore_records{entity="reports"} ${store.reports.size}`,
-    `btk_datastore_records{entity="webhooks"} ${store.webhooks.size}`,
-    `btk_datastore_records{entity="api_keys"} ${store.apiKeys.size}`,
+    `btk_datastore_records{entity="organizations"} ${organizations}`,
+    `btk_datastore_records{entity="users"} ${users}`,
+    `btk_datastore_records{entity="tracking_sessions"} ${trackingSessions}`,
+    `btk_datastore_records{entity="reports"} ${reports}`,
+    `btk_datastore_records{entity="webhooks"} ${webhooks}`,
+    `btk_datastore_records{entity="api_keys"} ${apiKeys}`,
   ];
 
   return new Response(`${lines.join("\n")}\n`, {

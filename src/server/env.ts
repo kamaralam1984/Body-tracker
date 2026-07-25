@@ -4,8 +4,8 @@ import { z } from "zod";
  * Fail-fast environment validation. Only variables the running app actually
  * reads are required — DATABASE_URL/REDIS_URL are validated when present
  * (so docker-compose's real Postgres/Redis wiring is caught if malformed)
- * but are not yet required, since src/server/db/store.ts is still the
- * in-memory stand-in described in prisma/schema.prisma's header comment.
+ * but are not yet marked required here, even though src/server/db/prisma.ts
+ * now depends on DATABASE_URL at runtime.
  */
 
 const envSchema = z.object({
