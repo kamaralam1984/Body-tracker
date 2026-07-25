@@ -32,16 +32,21 @@ export function proxy() {
       "Content-Security-Policy",
       [
         "default-src 'self'",
-        "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
+        // MediaPipe's FilesetResolver loads vision_wasm_internal.js from
+        // jsdelivr as an actual <script> — that's script-src (specifically
+        // script-src-elem, which falls back to script-src when unset), not
+        // connect-src. Confirmed live: without this, Chrome blocks the
+        // script load outright and the tracking engine limps past init
+        // with no landmarkers doing real work, silently stuck "searching".
+        "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cdn.jsdelivr.net",
         "style-src 'self' 'unsafe-inline'",
         "img-src 'self' data: blob:",
         "font-src 'self' data:",
         "media-src 'self' blob:",
-        // MediaPipe Tasks Vision (src/features/tracking/lib/tracking-engine.ts)
-        // fetches its WASM runtime from jsdelivr and pose/hand/face .task
-        // models from storage.googleapis.com, and runs the WASM on a
-        // blob: worker — all three need explicit CSP allowances or camera
-        // tracking silently fails to initialize in production.
+        // The WASM binary itself and the pose/hand/face .task model files
+        // are fetch()'d directly (storage.googleapis.com hosts the models;
+        // jsdelivr also serves the .wasm binary alongside the JS glue file
+        // above) — these need connect-src, not script-src.
         "connect-src 'self' https://cdn.jsdelivr.net https://storage.googleapis.com",
         "worker-src 'self' blob:",
         "frame-ancestors 'none'",
