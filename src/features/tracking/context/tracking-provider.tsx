@@ -18,9 +18,14 @@ import {
   type UseBodyTrackingOptions,
   type UseBodyTrackingResult,
 } from "../hooks/use-body-tracking";
-import { useTrackingSessionSync } from "../hooks/use-tracking-session-sync";
+import { useTrackingSessionSync, type LiveTrackingStats } from "../hooks/use-tracking-session-sync";
 
-const TrackingContext = createContext<UseBodyTrackingResult | null>(null);
+export interface TrackingContextValue extends UseBodyTrackingResult {
+  /** Live camera-page stats (session summary, timeline, face/hand/pose readouts) — see use-tracking-session-sync.ts. */
+  live: LiveTrackingStats;
+}
+
+const TrackingContext = createContext<TrackingContextValue | null>(null);
 
 interface TrackingProviderProps extends UseBodyTrackingOptions {
   children: React.ReactNode;
@@ -28,14 +33,18 @@ interface TrackingProviderProps extends UseBodyTrackingOptions {
 
 export function TrackingProvider({ children, ...options }: TrackingProviderProps) {
   const tracking = useBodyTracking(options);
-  // Feeds real Attention/Posture/Wellness data from this session — see
-  // use-tracking-session-sync.ts. Deliberately a sibling to useBodyTracking,
-  // not inside it, so the core detection hook stays network-free.
-  useTrackingSessionSync({ frameRef: tracking.frameRef, active: options.active });
-  return <TrackingContext.Provider value={tracking}>{children}</TrackingContext.Provider>;
+  // Feeds real Attention/Posture/Wellness/Movement data from this session —
+  // see use-tracking-session-sync.ts. Deliberately a sibling to
+  // useBodyTracking, not inside it, so the core detection hook stays
+  // network-free. Its `live` return value also powers the camera page's
+  // live session-summary/timeline/alerts/analytics panels.
+  const { live } = useTrackingSessionSync({ frameRef: tracking.frameRef, active: options.active });
+  return (
+    <TrackingContext.Provider value={{ ...tracking, live }}>{children}</TrackingContext.Provider>
+  );
 }
 
-export function useTrackingContext(): UseBodyTrackingResult {
+export function useTrackingContext(): TrackingContextValue {
   const ctx = useContext(TrackingContext);
   if (!ctx) throw new Error("useTrackingContext must be used within a TrackingProvider");
   return ctx;

@@ -22,7 +22,7 @@
  * <TrackingProvider>: useTrackingSessionSync({ frameRef, active })
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { apiFetch, apiFetchJson } from "@/features/auth";
 import type { RefObject } from "react";
 import type { TrackingFrame, TrackingPoint } from "../types";
@@ -39,7 +39,7 @@ const YAW_EXCURSION_MS = 2500;
 // imported, so this lower-level tracking feature stays decoupled from the
 // dashboard feature's types (matches how the wire-format route itself
 // re-declares the set independently rather than importing it).
-type GestureType =
+export type GestureType =
   "wave" | "raise-hand" | "point" | "thumbs-up" | "pinch" | "open-palm" | "closed-hand";
 
 const GESTURE_LABELS: Record<GestureType, string> = {
@@ -67,6 +67,100 @@ const LOWER_BODY_VISIBLE_FRACTION = 0.3; // fraction of a window's pose frames w
 const REP_SIGNAL_WINDOW_MS = 3000; // rolling-mean window used to detrend the rep-cycle signal
 const REP_AMPLITUDE_THRESHOLD = 0.04; // peak-to-peak swing (normalized y) required to count as a deliberate rep, not fidgeting
 const SET_GAP_MS = 20_000; // no new rep for this long closes the current set
+
+// --- Live UI state (Phase 1 of the camera-studio roadmap, INCOMPLETE.md) ---
+// Everything below feeds the live camera-page panels (session summary,
+// timeline, alerts, face/hand/pose readouts) — separate from the ~10s
+// windowed data above that feeds the real backend/dashboards. Nothing here
+// is sent anywhere; it's purely local display state, pushed to React at a
+// bounded rate so 30-60fps detection doesn't force 30-60 re-renders/sec.
+const LIVE_PUSH_INTERVAL_MS = 500;
+const MAX_TIMELINE_ENTRIES = 20;
+// Mirrors intelligence-metrics-service.ts's classifyMovementState() at a
+// glance for the LIVE camera page — kept deliberately simpler (no gait
+// cadence, since that needs a longer window than feels "live") and kept in
+// sync manually since server code isn't imported into this client hook.
+const LIVE_MOTION_ENERGY_IDLE_THRESHOLD = 0.002;
+// Mirrors CALORIES_PER_REP in src/server/services/tracking-service.ts — for
+// a live-preview estimate only, the server computes the real stored value.
+const LIVE_CALORIES_PER_REP = 2;
+
+export type MovementState = "sitting" | "standing" | "idle";
+
+export interface TimelineEntry {
+  id: string;
+  time: string; // ISO, wall-clock
+  label: string;
+}
+
+export interface LiveTrackingStats {
+  sessionStartedAt: string | null; // ISO
+  elapsedSeconds: number;
+  activeSeconds: number; // time a face was actually detected
+  idleSeconds: number; // time no face was detected
+
+  faceDetected: boolean;
+  headPitch: number | null;
+  headYaw: number | null;
+  headRoll: number | null;
+  blinkCountTotal: number;
+  smile: boolean;
+  mouthOpen: boolean;
+  lookingAway: boolean;
+  faceLostSeconds: number;
+  eyesClosedSeconds: number;
+
+  currentGesture: GestureType | null;
+  gestureCountTotal: number;
+  handVisible: { left: boolean; right: boolean };
+
+  currentMovementState: MovementState | null; // null = "pose" mode not on / no data yet
+  exerciseSetCountTotal: number;
+  currentSetReps: number;
+  caloriesEstimateLive: number; // rough client-side preview — server computes the real stored value
+
+  attentionScoreLive: number | null;
+  postureScoreLive: number | null;
+  fatigueScoreLive: number | null;
+  attentionHigh: number | null;
+  attentionLow: number | null;
+  attentionAvg: number | null;
+
+  timeline: TimelineEntry[];
+}
+
+function emptyLiveStats(): LiveTrackingStats {
+  return {
+    sessionStartedAt: null,
+    elapsedSeconds: 0,
+    activeSeconds: 0,
+    idleSeconds: 0,
+    faceDetected: false,
+    headPitch: null,
+    headYaw: null,
+    headRoll: null,
+    blinkCountTotal: 0,
+    smile: false,
+    mouthOpen: false,
+    lookingAway: false,
+    faceLostSeconds: 0,
+    eyesClosedSeconds: 0,
+    currentGesture: null,
+    gestureCountTotal: 0,
+    handVisible: { left: false, right: false },
+    currentMovementState: null,
+    exerciseSetCountTotal: 0,
+    currentSetReps: 0,
+    caloriesEstimateLive: 0,
+    attentionScoreLive: null,
+    postureScoreLive: null,
+    fatigueScoreLive: null,
+    attentionHigh: null,
+    attentionLow: null,
+    attentionAvg: null,
+    timeline: [],
+  };
+}
 
 interface TrackingSessionRecord {
   id: string;
@@ -257,7 +351,14 @@ export interface UseTrackingSessionSyncOptions {
   active: boolean;
 }
 
-export function useTrackingSessionSync({ frameRef, active }: UseTrackingSessionSyncOptions): void {
+export interface UseTrackingSessionSyncResult {
+  live: LiveTrackingStats;
+}
+
+export function useTrackingSessionSync({
+  frameRef,
+  active,
+}: UseTrackingSessionSyncOptions): UseTrackingSessionSyncResult {
   const sessionIdRef = useRef<string | null>(null);
   const accRef = useRef<Accumulator>(freshAccumulator());
   const baselineRef = useRef<HeadRotationBaseline | null>(null);
@@ -274,17 +375,129 @@ export function useTrackingSessionSync({ frameRef, active }: UseTrackingSessionS
   const prevPosePointsRef = useRef<TrackingPoint[] | null>(null);
   const repCycleRef = useRef<RepCycleState>(freshRepCycleState());
 
+  // --- Live UI state ---
+  const sessionStartedAtRef = useRef<Date | null>(null);
+  const lifetimeFrameCountRef = useRef(0);
+  const lifetimeFacePresentFramesRef = useRef(0);
+  const lifetimeBlinkCountRef = useRef(0);
+  const lifetimeGestureCountRef = useRef(0);
+  const lifetimeExerciseSetCountRef = useRef(0);
+  const lifetimeRepsTotalRef = useRef(0);
+  const currentGestureRef = useRef<GestureType | null>(null);
+  const handVisibleRef = useRef<{ left: boolean; right: boolean }>({ left: false, right: false });
+  const latestScoresRef = useRef<{
+    attention: number | null;
+    posture: number | null;
+    fatigue: number | null;
+  }>({ attention: null, posture: null, fatigue: null });
+  const attentionStatsRef = useRef<{ sum: number; count: number; high: number; low: number }>({
+    sum: 0,
+    count: 0,
+    high: -Infinity,
+    low: Infinity,
+  });
+  const timelineRef = useRef<TimelineEntry[]>([]);
+  const [liveStats, setLiveStats] = useState<LiveTrackingStats>(emptyLiveStats);
+
   useEffect(() => {
     if (!active) return;
 
     let cancelled = false;
     let rafHandle = 0;
     let flushHandle: ReturnType<typeof setInterval> | null = null;
+    let livePushHandle: ReturnType<typeof setInterval> | null = null;
+
+    function pushTimelineEntry(label: string) {
+      timelineRef.current = [
+        {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          time: new Date().toISOString(),
+          label,
+        },
+        ...timelineRef.current,
+      ].slice(0, MAX_TIMELINE_ENTRIES);
+    }
+
+    function buildLiveSnapshot(): LiveTrackingStats {
+      const acc = accRef.current;
+      const now = Date.now();
+      const startedAt = sessionStartedAtRef.current;
+      const elapsedSeconds = startedAt ? (now - startedAt.getTime()) / 1000 : 0;
+      const lifetimeFrames = lifetimeFrameCountRef.current;
+      const presentFraction =
+        lifetimeFrames > 0 ? lifetimeFacePresentFramesRef.current / lifetimeFrames : 0;
+      const faceLostSeconds =
+        faceLostSinceRef.current !== null
+          ? Math.max(
+              (frameRef.current?.timestampMs ?? faceLostSinceRef.current) -
+                faceLostSinceRef.current,
+              0,
+            ) / 1000
+          : 0;
+      const eyesClosedSeconds =
+        eyesClosedSinceRef.current !== null
+          ? Math.max(
+              (frameRef.current?.timestampMs ?? eyesClosedSinceRef.current) -
+                eyesClosedSinceRef.current,
+              0,
+            ) / 1000
+          : 0;
+
+      const hasPoseData = acc.poseFrameCount > 0;
+      const liveMotionEnergy = hasPoseData ? acc.motionEnergySum / acc.poseFrameCount : null;
+      const liveLowerBodyVisible = hasPoseData
+        ? acc.lowerBodyVisibleFrames / acc.poseFrameCount >= LOWER_BODY_VISIBLE_FRACTION
+        : false;
+      const currentMovementState: MovementState | null =
+        liveMotionEnergy === null
+          ? null
+          : liveMotionEnergy < LIVE_MOTION_ENERGY_IDLE_THRESHOLD
+            ? "idle"
+            : liveLowerBodyVisible
+              ? "standing"
+              : "sitting";
+
+      const attentionStats = attentionStatsRef.current;
+      const face = frameRef.current?.face ?? null;
+
+      return {
+        sessionStartedAt: startedAt ? startedAt.toISOString() : null,
+        elapsedSeconds,
+        activeSeconds: elapsedSeconds * presentFraction,
+        idleSeconds: elapsedSeconds * (1 - presentFraction),
+        faceDetected: !!face,
+        headPitch: face?.headRotation?.pitch ?? null,
+        headYaw: face?.headRotation?.yaw ?? null,
+        headRoll: face?.headRotation?.roll ?? null,
+        blinkCountTotal: lifetimeBlinkCountRef.current,
+        smile: face?.smile ?? false,
+        mouthOpen: face?.mouthOpen ?? false,
+        lookingAway: yawExcursionFlaggedRef.current,
+        faceLostSeconds,
+        eyesClosedSeconds,
+        currentGesture: currentGestureRef.current,
+        gestureCountTotal: lifetimeGestureCountRef.current,
+        handVisible: { ...handVisibleRef.current },
+        currentMovementState,
+        exerciseSetCountTotal: lifetimeExerciseSetCountRef.current,
+        currentSetReps: repCycleRef.current.setReps,
+        caloriesEstimateLive: Math.round(lifetimeRepsTotalRef.current * LIVE_CALORIES_PER_REP),
+        attentionScoreLive: latestScoresRef.current.attention,
+        postureScoreLive: latestScoresRef.current.posture,
+        fatigueScoreLive: latestScoresRef.current.fatigue,
+        attentionHigh: attentionStats.count > 0 ? attentionStats.high : null,
+        attentionLow: attentionStats.count > 0 ? attentionStats.low : null,
+        attentionAvg: attentionStats.count > 0 ? attentionStats.sum / attentionStats.count : null,
+        timeline: timelineRef.current,
+      };
+    }
 
     function maybeEmitGesture(type: GestureType, timestampMs: number) {
       const last = lastGestureEmittedRef.current.get(type) ?? -Infinity;
       if (timestampMs - last < GESTURE_DEBOUNCE_MS) return;
       lastGestureEmittedRef.current.set(type, timestampMs);
+      lifetimeGestureCountRef.current += 1;
+      pushTimelineEntry(GESTURE_LABELS[type]);
       accRef.current.events.push({
         type: "gesture",
         message: GESTURE_LABELS[type],
@@ -293,10 +506,19 @@ export function useTrackingSessionSync({ frameRef, active }: UseTrackingSessionS
     }
 
     function processHands(frame: TrackingFrame) {
+      handVisibleRef.current = {
+        left: frame.hands.some((h) => h.hand === "left"),
+        right: frame.hands.some((h) => h.hand === "right"),
+      };
+      let liveGesture: GestureType | null = null;
+
       for (const hand of frame.hands) {
         const shape = analyzeHandShape(hand.points);
         const staticGesture = classifyStaticGesture(shape);
-        if (staticGesture) maybeEmitGesture(staticGesture, frame.timestampMs);
+        if (staticGesture) {
+          liveGesture = staticGesture;
+          maybeEmitGesture(staticGesture, frame.timestampMs);
+        }
 
         let state = handStatesRef.current.get(hand.hand);
         if (!state) {
@@ -337,6 +559,8 @@ export function useTrackingSessionSync({ frameRef, active }: UseTrackingSessionS
           state.raiseHandFlagged = false;
         }
       }
+
+      currentGestureRef.current = liveGesture;
     }
 
     // Takes `sessionId` explicitly rather than reading `sessionIdRef` itself —
@@ -350,6 +574,9 @@ export function useTrackingSessionSync({ frameRef, active }: UseTrackingSessionS
       const durationSeconds = Math.max((cycle.lastRepMs - cycle.setStartMs) / 1000, 0);
       const reps = cycle.setReps;
       repCycleRef.current = freshRepCycleState();
+      lifetimeExerciseSetCountRef.current += 1;
+      lifetimeRepsTotalRef.current += reps;
+      pushTimelineEntry(`Rep completed × ${reps}`);
 
       try {
         await apiFetch(`/api/v1/tracking/${sessionId}/exercise-set`, {
@@ -425,7 +652,10 @@ export function useTrackingSessionSync({ frameRef, active }: UseTrackingSessionS
       if (side && cycle.side !== null && side !== cycle.side) {
         cycle.crossingCount += 1;
         if (cycle.crossingCount % 2 === 0) {
-          if (cycle.setReps === 0) cycle.setStartMs = frame.timestampMs;
+          if (cycle.setReps === 0) {
+            cycle.setStartMs = frame.timestampMs;
+            pushTimelineEntry("Exercise started");
+          }
           cycle.setReps += 1;
           cycle.lastRepMs = frame.timestampMs;
         }
@@ -455,6 +685,7 @@ export function useTrackingSessionSync({ frameRef, active }: UseTrackingSessionS
           frame.timestampMs - faceLostSinceRef.current >= FACE_LOST_DISTRACTION_MS
         ) {
           acc.events.push({ type: "distraction", message: "Left the frame" });
+          pushTimelineEntry("Left the frame");
           faceLostFlaggedRef.current = true;
         }
         return;
@@ -463,6 +694,7 @@ export function useTrackingSessionSync({ frameRef, active }: UseTrackingSessionS
       faceLostSinceRef.current = null;
       faceLostFlaggedRef.current = false;
       acc.facePresentFrames += 1;
+      lifetimeFacePresentFramesRef.current += 1;
 
       // Blink / eye-closure duration state machine — PERCLOS + microsleep proxy inputs.
       const eyesClosed = face.blink.left && face.blink.right;
@@ -478,8 +710,10 @@ export function useTrackingSessionSync({ frameRef, active }: UseTrackingSessionS
             message: "Eyes closed for an extended period",
             durationSeconds: closedDurationMs / 1000,
           });
+          pushTimelineEntry("Eyes closed for an extended period");
         } else {
           acc.blinkCount += 1;
+          lifetimeBlinkCountRef.current += 1;
         }
         eyesClosedSinceRef.current = null;
       }
@@ -525,6 +759,7 @@ export function useTrackingSessionSync({ frameRef, active }: UseTrackingSessionS
           frame.timestampMs - yawExcursionSinceRef.current >= YAW_EXCURSION_MS
         ) {
           acc.events.push({ type: "distraction", message: "Looked away" });
+          pushTimelineEntry("Looked away");
           yawExcursionFlaggedRef.current = true;
         }
       } else {
@@ -535,8 +770,14 @@ export function useTrackingSessionSync({ frameRef, active }: UseTrackingSessionS
 
     function processFrame(frame: TrackingFrame) {
       accRef.current.frameCount += 1;
+      lifetimeFrameCountRef.current += 1;
       processFace(frame);
-      if (frame.hands.length > 0) processHands(frame);
+      if (frame.hands.length > 0) {
+        processHands(frame);
+      } else {
+        handVisibleRef.current = { left: false, right: false };
+        currentGestureRef.current = null;
+      }
       processPoseMovement(frame);
     }
 
@@ -573,7 +814,7 @@ export function useTrackingSessionSync({ frameRef, active }: UseTrackingSessionS
       accRef.current = freshAccumulator();
 
       try {
-        await apiFetch(`/api/v1/tracking/${sessionId}/metrics`, {
+        const response = await apiFetch(`/api/v1/tracking/${sessionId}/metrics`, {
           method: "POST",
           body: JSON.stringify({
             windowStart: acc.windowStart.toISOString(),
@@ -595,6 +836,24 @@ export function useTrackingSessionSync({ frameRef, active }: UseTrackingSessionS
             events: acc.events.length > 0 ? acc.events.slice(0, 20) : undefined,
           }),
         });
+        const body = (await response.json()) as {
+          data?: { attentionScore?: number; postureScore?: number; fatigueScore?: number };
+        };
+        if (body.data) {
+          const { attentionScore, postureScore, fatigueScore } = body.data;
+          latestScoresRef.current = {
+            attention: attentionScore ?? latestScoresRef.current.attention,
+            posture: postureScore ?? latestScoresRef.current.posture,
+            fatigue: fatigueScore ?? latestScoresRef.current.fatigue,
+          };
+          if (attentionScore !== undefined) {
+            const stats = attentionStatsRef.current;
+            stats.sum += attentionScore;
+            stats.count += 1;
+            stats.high = Math.max(stats.high, attentionScore);
+            stats.low = Math.min(stats.low, attentionScore);
+          }
+        }
       } catch {
         // Best-effort telemetry — a dropped window just means a slightly
         // sparser dashboard, never something the user needs to see mid-session.
@@ -627,8 +886,27 @@ export function useTrackingSessionSync({ frameRef, active }: UseTrackingSessionS
         prevPosePointsRef.current = null;
         repCycleRef.current = freshRepCycleState();
 
+        sessionStartedAtRef.current = new Date();
+        lifetimeFrameCountRef.current = 0;
+        lifetimeFacePresentFramesRef.current = 0;
+        lifetimeBlinkCountRef.current = 0;
+        lifetimeGestureCountRef.current = 0;
+        lifetimeExerciseSetCountRef.current = 0;
+        lifetimeRepsTotalRef.current = 0;
+        currentGestureRef.current = null;
+        handVisibleRef.current = { left: false, right: false };
+        latestScoresRef.current = { attention: null, posture: null, fatigue: null };
+        attentionStatsRef.current = { sum: 0, count: 0, high: -Infinity, low: Infinity };
+        timelineRef.current = [];
+        pushTimelineEntry("Session started");
+        setLiveStats(buildLiveSnapshot());
+
         rafHandle = requestAnimationFrame(tick);
         flushHandle = setInterval(() => void flush(false), FLUSH_INTERVAL_MS);
+        livePushHandle = setInterval(
+          () => setLiveStats(buildLiveSnapshot()),
+          LIVE_PUSH_INTERVAL_MS,
+        );
       } catch {
         // No session (e.g. not logged in yet, or backend unreachable) — tracking
         // still works locally, it just won't feed the real dashboards this run.
@@ -641,6 +919,9 @@ export function useTrackingSessionSync({ frameRef, active }: UseTrackingSessionS
       cancelled = true;
       cancelAnimationFrame(rafHandle);
       if (flushHandle) clearInterval(flushHandle);
+      if (livePushHandle) clearInterval(livePushHandle);
+      sessionStartedAtRef.current = null;
+      setLiveStats(emptyLiveStats());
 
       const sessionId = sessionIdRef.current;
       sessionIdRef.current = null;
@@ -657,4 +938,6 @@ export function useTrackingSessionSync({ frameRef, active }: UseTrackingSessionS
     // frameRef is a stable ref object for the lifetime of the component.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
+
+  return { live: liveStats };
 }

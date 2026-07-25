@@ -20,6 +20,12 @@ import {
   useCameraContext,
 } from "@/features/camera";
 import {
+  FaceAnalyticsCard,
+  HandAnalyticsCard,
+  LiveTimeline,
+  PoseAnalyticsCard,
+  SessionSummaryCard,
+  TrackingAlerts,
   TrackingErrorEmptyState,
   TrackingLegend,
   TrackingLoadingIndicator,
@@ -111,6 +117,8 @@ function CameraPageContent() {
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         <div className="flex flex-col gap-4 xl:col-span-2">
+          <TrackingAlerts />
+
           <div
             ref={fullscreenTargetRef}
             className={cn("relative", isFullscreen && "fixed inset-0 h-screen w-screen bg-black")}
@@ -160,6 +168,7 @@ function CameraPageContent() {
 
         <div className="flex flex-col gap-4">
           <PerformancePanel />
+          <SessionSummaryCard />
 
           {tracking.status === "initializing" && <TrackingLoadingIndicator />}
           {tracking.status === "unsupported" && <TrackingUnavailableEmptyState />}
@@ -172,6 +181,11 @@ function CameraPageContent() {
               }
             />
           )}
+
+          <FaceAnalyticsCard />
+          <HandAnalyticsCard />
+          <PoseAnalyticsCard />
+          <LiveTimeline />
 
           <Card>
             <CardHeader>
