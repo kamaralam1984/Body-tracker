@@ -63,6 +63,16 @@ const MODEL_URLS = {
   },
 } as const;
 
+// Detection/presence/tracking confidence floor for all three landmarkers.
+// MediaPipe's own default (0.5) is permissive enough to lock onto
+// non-face/hand/pose shapes (glasses, wall patterns, reflections) and keep
+// drawing an overlay when nothing is actually there. Raising this makes the
+// engine correctly report "nothing detected" — the canvas already skips
+// drawing entirely when a mode's result is null (see tracking-canvas.tsx) —
+// so a higher floor directly fixes both false-positive lines and jitter,
+// since low-confidence, noisy candidate detections get rejected up front.
+const MIN_CONFIDENCE = 0.65;
+
 // Status hysteresis thresholds, in consecutive detection frames (~30fps).
 const EXCELLENT_HIT_STREAK = 45; // ~1.5s of sustained, uninterrupted detection
 const GOOD_HIT_STREAK = 10; // ~0.3s
@@ -199,6 +209,9 @@ export class TrackingEngine {
         numFaces: 1,
         outputFaceBlendshapes: true,
         outputFacialTransformationMatrixes: true,
+        minFaceDetectionConfidence: MIN_CONFIDENCE,
+        minFacePresenceConfidence: MIN_CONFIDENCE,
+        minTrackingConfidence: MIN_CONFIDENCE,
       });
     } else if (!modes.has("face") && this.faceLandmarker) {
       this.faceLandmarker.close();
@@ -211,6 +224,9 @@ export class TrackingEngine {
         baseOptions: { modelAssetPath: MODEL_URLS.hand, delegate: "GPU" },
         runningMode: "VIDEO",
         numHands: 2,
+        minHandDetectionConfidence: MIN_CONFIDENCE,
+        minHandPresenceConfidence: MIN_CONFIDENCE,
+        minTrackingConfidence: MIN_CONFIDENCE,
       });
     } else if (!modes.has("hand") && this.handLandmarker) {
       this.handLandmarker.close();
@@ -224,6 +240,9 @@ export class TrackingEngine {
         runningMode: "VIDEO",
         numPoses: 1,
         outputSegmentationMasks: false,
+        minPoseDetectionConfidence: MIN_CONFIDENCE,
+        minPosePresenceConfidence: MIN_CONFIDENCE,
+        minTrackingConfidence: MIN_CONFIDENCE,
       });
     } else if (!modes.has("pose") && this.poseLandmarker) {
       this.poseLandmarker.close();

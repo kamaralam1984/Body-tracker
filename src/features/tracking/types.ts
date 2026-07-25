@@ -91,7 +91,7 @@ export interface TrackingConfig {
 export const DEFAULT_TRACKING_CONFIG: TrackingConfig = {
   modes: new Set<TrackingMode>(["face"]),
   quality: "balanced",
-  smoothing: 0.5,
+  smoothing: 0.65,
   mirrored: true,
 };
 
