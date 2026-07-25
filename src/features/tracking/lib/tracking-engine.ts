@@ -73,6 +73,11 @@ const MODEL_URLS = {
 // since low-confidence, noisy candidate detections get rejected up front.
 const MIN_CONFIDENCE = 0.65;
 
+// MediaPipe Pose landmark indices 0–10 (nose, left/right eye inner-center-outer,
+// left/right ear, mouth left/right) — see processPose below for why these get
+// excluded from what's actually drawn.
+const POSE_FACE_LANDMARK_COUNT = 11;
+
 // Status hysteresis thresholds, in consecutive detection frames (~30fps).
 const EXCELLENT_HIT_STREAK = 45; // ~1.5s of sustained, uninterrupted detection
 const GOOD_HIT_STREAK = 10; // ~0.3s
@@ -445,6 +450,19 @@ export class TrackingEngine {
     const landmarks = result.landmarks[0];
     if (!landmarks || landmarks.length === 0) return null;
     const smoothed = this.poseSmoother.smoothPoints("pose", t, landmarks.map(toTrackingPoint));
+
+    // MediaPipe Pose's own landmarks 0–10 (nose, eyes, ears, mouth corners)
+    // are a crude few-point approximation of the face — connected with
+    // straight lines they render as a jagged triangle over the eyes/nose,
+    // not an eye outline. The dedicated "face" mode already draws a dense,
+    // accurate mesh for this region, so zero these landmarks' visibility;
+    // the renderer's visibility gate (draw-pose.ts) then skips them and
+    // only draws body joints (shoulders down), regardless of whether face
+    // mode is also on.
+    for (let i = 0; i < POSE_FACE_LANDMARK_COUNT && i < smoothed.length; i++) {
+      smoothed[i] = { ...smoothed[i]!, visibility: 0 };
+    }
+
     return { points: smoothed, segments: segmentsFromConnections(smoothed, this.poseConnections) };
   }
 }
