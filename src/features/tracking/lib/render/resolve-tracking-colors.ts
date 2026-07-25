@@ -38,9 +38,9 @@ export interface TrackingColors {
   pose: TrackingColorPair;
 }
 
-const LINE_ALPHA = 55;
-const POINT_ALPHA = 85;
-const TIP_ALPHA = 95;
+const LINE_ALPHA = 68;
+const POINT_ALPHA = 90;
+const TIP_ALPHA = 98;
 
 function readCssVar(name: string, fallback: string): string {
   if (typeof window === "undefined") return fallback;

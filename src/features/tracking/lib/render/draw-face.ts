@@ -1,8 +1,8 @@
 import type { FaceContourName, FaceTrackingResult, TrackingPoint } from "../../types";
 import type { TrackingColorPair } from "./resolve-tracking-colors";
 
-const LINE_WIDTH = 1.5;
-const IRIS_POINT_RADIUS = 2.5;
+const LINE_WIDTH = 2;
+const IRIS_POINT_RADIUS = 3;
 
 const IRIS_CONTOURS = new Set<FaceContourName>(["leftIris", "rightIris"]);
 

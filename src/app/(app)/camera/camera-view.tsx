@@ -36,6 +36,12 @@ function CameraPageContent() {
   const [permissionDialogOpen, setPermissionDialogOpen] = useState(false);
   const [screenshot, setScreenshot] = useState<string | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
+  // Separate from cardRef: this wraps BOTH CameraCard and TrackingOverlay
+  // (the overlay is a sibling, not a descendant, of CameraCard). Fullscreen
+  // must target this wrapper — fullscreening cardRef alone hides the overlay
+  // entirely, since the Fullscreen API only renders the fullscreened
+  // element's own subtree, not its siblings.
+  const fullscreenTargetRef = useRef<HTMLDivElement>(null);
 
   const cardAction = (() => {
     switch (status) {
@@ -91,14 +97,14 @@ function CameraPageContent() {
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         <div className="flex flex-col gap-4 xl:col-span-2">
-          <div className="relative">
+          <div ref={fullscreenTargetRef} className="relative">
             <CameraCard ref={cardRef} action={cardAction} />
             <TrackingOverlay containerRef={cardRef} />
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-3">
             <CameraToolbar onScreenshot={setScreenshot} />
-            <FullscreenButton targetRef={cardRef} />
+            <FullscreenButton targetRef={fullscreenTargetRef} />
           </div>
 
           <TrackingLegend />

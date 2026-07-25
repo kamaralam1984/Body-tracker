@@ -1,22 +1,24 @@
 import type { PoseTrackingResult, TrackingPoint } from "../../types";
+import { depthStyleOf, segmentDepthStyle } from "./depth-scale";
 import type { TrackingColorPair } from "./resolve-tracking-colors";
 
-const LINE_WIDTH = 1.5;
-const JOINT_RADIUS = 2.5;
+const LINE_WIDTH = 2.25;
+const JOINT_RADIUS = 3;
 
 export interface DrawPoseColors {
   pose: TrackingColorPair;
 }
 
 /**
- * Draws the tracked pose skeleton with thin, soft connection lines and
- * small joint dots. Connections are literal `lineTo` segments — that's how
- * MediaPipe's connection data is shaped — kept visually soft via line
- * width/opacity rather than spline-curved, which would be over-engineering
- * for this scale.
+ * Draws the tracked pose skeleton with connection lines and joint dots,
+ * each scaled by that landmark's depth (`z`) — limbs reaching toward the
+ * camera render thicker/fuller-opacity, ones reaching away render
+ * thinner/fainter, so the 2D overlay reads with a sense of the body's
+ * actual 3D pose instead of a flat wireframe. See depth-scale.ts.
  *
- * Draws are batched into two paths total (all connections, all joints)
- * regardless of segment/point count.
+ * Depth-varying width means each segment/joint needs its own stroke/fill
+ * call (canvas can't vary lineWidth within one path) — still cheap at
+ * pose's landmark count (~33 connections) at 60fps.
  */
 export function drawPose(
   ctx: CanvasRenderingContext2D,
@@ -27,26 +29,33 @@ export function drawPose(
 ): void {
   const toPx = (p: TrackingPoint): [number, number] => [p.x * width, p.y * height];
 
-  ctx.lineWidth = LINE_WIDTH;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
+  ctx.strokeStyle = colors.pose.line;
 
-  ctx.beginPath();
   for (const [a, b] of pose.segments) {
     const [ax, ay] = toPx(a);
     const [bx, by] = toPx(b);
+    const { widthScale, alphaScale } = segmentDepthStyle(a, b);
+    ctx.lineWidth = LINE_WIDTH * widthScale;
+    ctx.globalAlpha = alphaScale;
+    ctx.beginPath();
     ctx.moveTo(ax, ay);
     ctx.lineTo(bx, by);
+    ctx.stroke();
   }
-  ctx.strokeStyle = colors.pose.line;
-  ctx.stroke();
 
-  ctx.beginPath();
+  ctx.fillStyle = colors.pose.point;
   for (const point of pose.points) {
     const [x, y] = toPx(point);
-    ctx.moveTo(x + JOINT_RADIUS, y);
-    ctx.arc(x, y, JOINT_RADIUS, 0, Math.PI * 2);
+    const { widthScale, alphaScale } = depthStyleOf(point.z);
+    const radius = JOINT_RADIUS * widthScale;
+    ctx.globalAlpha = alphaScale;
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
   }
-  ctx.fillStyle = colors.pose.point;
-  ctx.fill();
+
+  ctx.globalAlpha = 1;
 }

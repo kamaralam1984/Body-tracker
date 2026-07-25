@@ -13,7 +13,16 @@ import { useTrackingContext } from "../context/tracking-provider";
 import { drawFace } from "../lib/render/draw-face";
 import { drawHand } from "../lib/render/draw-hand";
 import { drawPose } from "../lib/render/draw-pose";
+import { extrapolateTrackingFrame } from "../lib/render/extrapolate-frame";
 import { resolveTrackingColors, type TrackingColors } from "../lib/render/resolve-tracking-colors";
+import type { TrackingFrame } from "../types";
+
+// Bounds on how far we'll predict past the newest detected frame — see
+// extrapolate-frame.ts. Never predict further ahead than the gap between
+// the last two real samples (MAX_INTERVAL_MS) caps that gap itself so a
+// stall in detection (e.g. subject leaves frame) can't make the overlay
+// drift indefinitely into empty space.
+const MAX_DETECTION_INTERVAL_MS = 200;
 
 interface TrackingCanvasProps {
   containerRef: RefObject<HTMLElement | null>;
@@ -67,6 +76,15 @@ export function TrackingCanvas({ containerRef, className }: TrackingCanvasProps)
     let frameCount = 0;
     let rafHandle = 0;
 
+    // Tracks the last two distinct detection samples (by timestampMs) and
+    // when the newest one actually arrived in wall-clock time, so draw()
+    // can extrapolate smooth motion between them instead of holding a
+    // static pose until the next detection lands. See extrapolate-frame.ts.
+    let prevDetectionFrame: TrackingFrame | null = null;
+    let currDetectionFrame: TrackingFrame | null = null;
+    let currDetectionArrivedAt = 0;
+    let detectionIntervalMs = MAX_DETECTION_INTERVAL_MS;
+
     function draw() {
       frameCount += 1;
       if (frameCount % COLOR_REFRESH_INTERVAL_FRAMES === 0) {
@@ -75,8 +93,23 @@ export function TrackingCanvas({ containerRef, className }: TrackingCanvasProps)
 
       ctx!.clearRect(0, 0, cssWidth, cssHeight);
 
-      const frame = frameRef.current;
-      if (frame && cssWidth > 0 && cssHeight > 0) {
+      const latest = frameRef.current;
+      const now = performance.now();
+
+      if (latest && latest.timestampMs !== currDetectionFrame?.timestampMs) {
+        prevDetectionFrame = currDetectionFrame;
+        currDetectionFrame = latest;
+        detectionIntervalMs = prevDetectionFrame
+          ? Math.min(Math.max(now - currDetectionArrivedAt, 16), MAX_DETECTION_INTERVAL_MS)
+          : MAX_DETECTION_INTERVAL_MS;
+        currDetectionArrivedAt = now;
+      }
+
+      if (currDetectionFrame && cssWidth > 0 && cssHeight > 0) {
+        const elapsedSinceDetection = now - currDetectionArrivedAt;
+        const alpha = Math.min(elapsedSinceDetection, detectionIntervalMs) / detectionIntervalMs;
+        const frame = extrapolateTrackingFrame(prevDetectionFrame, currDetectionFrame, alpha);
+
         if (frame.face) drawFace(ctx!, frame.face, cssWidth, cssHeight, colors);
         if (frame.hands.length > 0) drawHand(ctx!, frame.hands, cssWidth, cssHeight, colors);
         if (frame.pose) drawPose(ctx!, frame.pose, cssWidth, cssHeight, colors);
