@@ -10,6 +10,7 @@ import {
   rollAlignmentScore,
   yawBalanceScore,
   stabilityScoreOf,
+  computeActivityQualityScore,
   type EngagementLevel,
   type AlignmentQuality,
   type EnergyLevel,
@@ -404,4 +405,230 @@ async function getDailyTrend(
       label: formatDayLabel(new Date(key)),
       score: round(average(daySamples.map(metric))),
     }));
+}
+
+// --- Gestures (Phase 2, "hand" mode only) -----------------------------------
+// Same 7 literals as `src/features/intelligence/types.ts`'s `GestureType` —
+// redeclared locally since server code doesn't import from `src/features/*`.
+
+export type GestureType =
+  "wave" | "raise-hand" | "point" | "thumbs-up" | "pinch" | "open-palm" | "closed-hand";
+
+const ALL_GESTURE_TYPES: GestureType[] = [
+  "wave",
+  "raise-hand",
+  "point",
+  "thumbs-up",
+  "pinch",
+  "open-palm",
+  "closed-hand",
+];
+
+const GESTURE_WINDOW_MS = 72 * 60 * 60 * 1000; // matches the mock's 72h window
+
+function isGestureType(value: unknown): value is GestureType {
+  return typeof value === "string" && (ALL_GESTURE_TYPES as string[]).includes(value);
+}
+
+export interface GestureEventData {
+  id: string;
+  type: GestureType;
+  timestamp: string;
+  sessionLabel: string;
+}
+
+export async function getGestureEvents(orgId: string, userId: string): Promise<GestureEventData[]> {
+  const prisma = await getPrisma();
+  const since = new Date(Date.now() - GESTURE_WINDOW_MS);
+
+  const events = await prisma.trackingEvent.findMany({
+    where: { type: "gesture", session: { orgId, userId }, createdAt: { gte: since } },
+    orderBy: { createdAt: "desc" },
+    include: { session: { select: { title: true } } },
+  });
+
+  return events
+    .map((event) => {
+      const data = event.data as { gestureType?: unknown } | null;
+      if (!isGestureType(data?.gestureType)) return null;
+      return {
+        id: event.id,
+        type: data.gestureType,
+        timestamp: event.createdAt.toISOString(),
+        sessionLabel: event.session.title,
+      };
+    })
+    .filter((e): e is GestureEventData => e !== null);
+}
+
+export interface GestureSummaryData {
+  type: GestureType;
+  count: number;
+}
+
+/** Always all 7 types, zero-filled, sorted desc — the page's grid renders exactly what it's given. */
+export async function getGestureSummaries(
+  orgId: string,
+  userId: string,
+): Promise<GestureSummaryData[]> {
+  const prisma = await getPrisma();
+  const since = new Date(Date.now() - GESTURE_WINDOW_MS);
+
+  const events = await prisma.trackingEvent.findMany({
+    where: { type: "gesture", session: { orgId, userId }, createdAt: { gte: since } },
+    select: { data: true },
+  });
+
+  const counts = new Map<GestureType, number>();
+  for (const event of events) {
+    const data = event.data as { gestureType?: unknown } | null;
+    if (!isGestureType(data?.gestureType)) continue;
+    counts.set(data.gestureType, (counts.get(data.gestureType) ?? 0) + 1);
+  }
+
+  return ALL_GESTURE_TYPES.map((type) => ({ type, count: counts.get(type) ?? 0 })).sort(
+    (a, b) => b.count - a.count,
+  );
+}
+
+// --- Movement pattern (Phase 2, "pose" mode only) ---------------------------
+
+const MOVEMENT_STATES = ["walking", "standing", "sitting", "running", "idle"] as const;
+
+export interface MovementPatternPointData {
+  activity: (typeof MOVEMENT_STATES)[number];
+  minutes: number;
+}
+
+/** Always all 5 states, zero-filled, sorted desc by minutes — matches the mock's exact contract. */
+export async function getMovementPattern(
+  orgId: string,
+  userId: string,
+): Promise<MovementPatternPointData[]> {
+  const day = await resolveActiveDay(orgId, userId);
+  const samples = await samplesInRange(orgId, userId, day.start, day.end);
+
+  const minutesByState = new Map<string, number>();
+  for (const sample of samples) {
+    if (!sample.movementState) continue;
+    const minutes = (sample.windowEnd.getTime() - sample.windowStart.getTime()) / 60_000;
+    minutesByState.set(
+      sample.movementState,
+      (minutesByState.get(sample.movementState) ?? 0) + minutes,
+    );
+  }
+
+  return MOVEMENT_STATES.map((activity) => ({
+    activity,
+    minutes: round(minutesByState.get(activity) ?? 0),
+  })).sort((a, b) => b.minutes - a.minutes);
+}
+
+export interface ActivityQualityPointData {
+  label: string;
+  quality: number;
+}
+
+/**
+ * 7-day trend of `computeActivityQualityScore()` — needs both that day's
+ * average attention score and its non-idle fraction, so it groups samples
+ * itself rather than reusing the single-metric `getDailyTrend` above. Days
+ * with tracking but no pose data (movementState never set) fall back to a
+ * neutral 0.5 active-fraction rather than silently zeroing the score.
+ */
+export async function getActivityQualityTrend(
+  orgId: string,
+  userId: string,
+): Promise<ActivityQualityPointData[]> {
+  const prisma = await getPrisma();
+  const todayBounds = dayBoundsUTC(new Date());
+  const rangeStart = new Date(todayBounds.start.getTime() - (TREND_DAYS - 1) * DAY_MS);
+
+  const samples = await prisma.trackingMetricSample.findMany({
+    where: { orgId, userId, windowStart: { gte: rangeStart, lt: todayBounds.end } },
+    orderBy: { windowStart: "asc" },
+  });
+
+  const byDay = new Map<string, TrackingMetricSample[]>();
+  for (const sample of samples) {
+    const key = dayBoundsUTC(sample.windowStart).start.toISOString();
+    if (!byDay.has(key)) byDay.set(key, []);
+    byDay.get(key)!.push(sample);
+  }
+
+  return Array.from(byDay.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, daySamples]) => {
+      const attentionAvg = average(daySamples.map((s) => s.attentionScore));
+      const withMovement = daySamples.filter((s) => s.movementState !== null);
+      const activeFraction =
+        withMovement.length > 0
+          ? withMovement.filter((s) => s.movementState !== "idle").length / withMovement.length
+          : 0.5;
+      return {
+        label: formatDayLabel(new Date(key)),
+        quality: computeActivityQualityScore(attentionAvg, activeFraction),
+      };
+    });
+}
+
+// --- Exercise sets (Phase 2, "pose" mode only) ------------------------------
+
+const EXERCISE_SET_WINDOW_MS = 7 * DAY_MS;
+
+export interface ExerciseSetData {
+  id: string;
+  exerciseName: string;
+  reps: number;
+  durationSeconds: number;
+  caloriesEstimate: number;
+  timestamp: string;
+}
+
+export async function getExerciseSets(orgId: string, userId: string): Promise<ExerciseSetData[]> {
+  const prisma = await getPrisma();
+  const since = new Date(Date.now() - EXERCISE_SET_WINDOW_MS);
+
+  const sets = await prisma.exerciseSet.findMany({
+    where: { orgId, userId, createdAt: { gte: since } },
+    orderBy: { createdAt: "desc" },
+  });
+
+  return sets.map((set) => ({
+    id: set.id,
+    exerciseName: set.exerciseName,
+    reps: set.reps,
+    durationSeconds: set.durationSeconds,
+    caloriesEstimate: set.caloriesEstimate,
+    timestamp: set.createdAt.toISOString(),
+  }));
+}
+
+export interface WorkoutTrendPointData {
+  label: string;
+  reps: number;
+}
+
+export async function getWorkoutTrend(
+  orgId: string,
+  userId: string,
+): Promise<WorkoutTrendPointData[]> {
+  const prisma = await getPrisma();
+  const todayBounds = dayBoundsUTC(new Date());
+  const rangeStart = new Date(todayBounds.start.getTime() - (TREND_DAYS - 1) * DAY_MS);
+
+  const sets = await prisma.exerciseSet.findMany({
+    where: { orgId, userId, createdAt: { gte: rangeStart, lt: todayBounds.end } },
+    orderBy: { createdAt: "asc" },
+  });
+
+  const repsByDay = new Map<string, number>();
+  for (const set of sets) {
+    const key = dayBoundsUTC(set.createdAt).start.toISOString();
+    repsByDay.set(key, (repsByDay.get(key) ?? 0) + set.reps);
+  }
+
+  return Array.from(repsByDay.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, reps]) => ({ label: formatDayLabel(new Date(key)), reps }));
 }

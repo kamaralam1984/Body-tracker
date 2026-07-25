@@ -1,14 +1,19 @@
 "use client";
 
 /**
- * Bridges live face-tracking to the real backend: while `active`, creates
- * and starts a `TrackingSession`, tallies aggregate stats from every
- * detected frame (never raw landmarks — see the `FLUSH_INTERVAL_MS` window
- * body below for exactly what leaves the browser), flushes a window to
+ * Bridges live face/hand/pose-tracking to the real backend: while `active`,
+ * creates and starts a `TrackingSession`, tallies aggregate stats from every
+ * detected frame (never raw landmarks — see the flush body below for
+ * exactly what leaves the browser), flushes a window to
  * `POST /api/v1/tracking/[sessionId]/metrics` every ~10s, and stops the
  * session when tracking ends. This is what makes the Attention/Posture/
- * Wellness dashboards (`src/features/intelligence`) reflect a real camera
- * session instead of demo data.
+ * Wellness/Movement dashboards (`src/features/intelligence`) reflect a real
+ * camera session instead of demo data.
+ *
+ * Gestures and exercise sets only ever populate when the user has turned on
+ * "hand"/"pose" tracking mode (both off by default, see
+ * `DEFAULT_TRACKING_CONFIG`) — this hook doesn't change that default, it
+ * just reports whatever's actually enabled.
  *
  * Runs its own read-only loop over `frameRef.current` — deliberately does
  * NOT touch `use-body-tracking.ts`'s detection `tick()`, which stays
@@ -20,7 +25,7 @@
 import { useEffect, useRef } from "react";
 import { apiFetch, apiFetchJson } from "@/features/auth";
 import type { RefObject } from "react";
-import type { TrackingFrame } from "../types";
+import type { TrackingFrame, TrackingPoint } from "../types";
 
 const FLUSH_INTERVAL_MS = 10_000;
 const BASELINE_SAMPLE_TARGET = 30; // ~1-2s of frames with a face present
@@ -29,15 +34,47 @@ const FACE_LOST_DISTRACTION_MS = 3000;
 const YAW_EXCURSION_DEG = 30;
 const YAW_EXCURSION_MS = 2500;
 
+// Same 7 literals as `src/features/intelligence/types.ts`'s `GestureType` and
+// the `/metrics` route's zod schema — redeclared locally rather than
+// imported, so this lower-level tracking feature stays decoupled from the
+// dashboard feature's types (matches how the wire-format route itself
+// re-declares the set independently rather than importing it).
+type GestureType =
+  "wave" | "raise-hand" | "point" | "thumbs-up" | "pinch" | "open-palm" | "closed-hand";
+
+const GESTURE_LABELS: Record<GestureType, string> = {
+  wave: "Wave",
+  "raise-hand": "Raised hand",
+  point: "Point",
+  "thumbs-up": "Thumbs up",
+  pinch: "Pinch",
+  "open-palm": "Open palm",
+  "closed-hand": "Closed hand",
+};
+
+const GESTURE_DEBOUNCE_MS = 2000; // minimum gap between repeat emissions of the SAME gesture type
+const WAVE_WINDOW_MS = 1500;
+const WAVE_MIN_REVERSALS = 4; // direction reversals of wrist x within the window to call it a "wave", not a drift
+const MIN_WAVE_DELTA = 0.01; // normalized-x noise floor below which a frame-to-frame move doesn't count
+const RAISE_HAND_Y_THRESHOLD = 0.35; // normalized y (0 = top) — wrist above this line reads as "raised"
+const RAISE_HAND_MS = 1000;
+const EXTENSION_RATIO = 1.15; // fingertip must be this much farther from the wrist than its MCP joint to count as "extended"
+const PINCH_DISTANCE_RATIO = 0.35; // thumb-tip/index-tip distance, as a fraction of hand scale, below which it's a pinch
+
+const MIN_POSE_VISIBILITY = 0.6; // same threshold draw-pose.ts uses to gate rendering
+const LOWER_BODY_VISIBLE_FRACTION = 0.3; // fraction of a window's pose frames with hip+ankle visible, to call the window "lower body visible"
+
+const REP_SIGNAL_WINDOW_MS = 3000; // rolling-mean window used to detrend the rep-cycle signal
+const REP_AMPLITUDE_THRESHOLD = 0.04; // peak-to-peak swing (normalized y) required to count as a deliberate rep, not fidgeting
+const SET_GAP_MS = 20_000; // no new rep for this long closes the current set
+
 interface TrackingSessionRecord {
   id: string;
 }
 
-type QueuedEvent = {
-  type: "distraction" | "drowsiness_alert";
-  message: string;
-  durationSeconds?: number;
-};
+type QueuedEvent =
+  | { type: "distraction" | "drowsiness_alert"; message: string; durationSeconds?: number }
+  | { type: "gesture"; message: string; gestureType: GestureType };
 
 interface HeadRotationBaseline {
   pitch: number;
@@ -45,7 +82,7 @@ interface HeadRotationBaseline {
   roll: number;
 }
 
-/** Mutable per-session tallying state — kept in a ref so accumulation never triggers a re-render. */
+/** Mutable per-window tallying state — kept in a ref so accumulation never triggers a re-render. */
 interface Accumulator {
   frameCount: number;
   facePresentFrames: number;
@@ -59,6 +96,10 @@ interface Accumulator {
   rollDevSum: number;
   rollDevSumSq: number;
   rotationSampleCount: number;
+  poseFrameCount: number;
+  motionEnergySum: number;
+  lowerBodyVisibleFrames: number;
+  hipXSamples: { t: number; x: number }[];
   events: QueuedEvent[];
   windowStart: Date;
 }
@@ -77,6 +118,10 @@ function freshAccumulator(): Accumulator {
     rollDevSum: 0,
     rollDevSumSq: 0,
     rotationSampleCount: 0,
+    poseFrameCount: 0,
+    motionEnergySum: 0,
+    lowerBodyVisibleFrames: 0,
+    hipXSamples: [],
     events: [],
     windowStart: new Date(),
   };
@@ -91,6 +136,120 @@ function meanAndStdDev(
   const mean = sum / count;
   const variance = Math.max(sumSq / count - mean * mean, 0);
   return { mean, stdDev: Math.sqrt(variance) };
+}
+
+function dist2D(a: TrackingPoint, b: TrackingPoint): number {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+/** Counts direction reversals of `x` across the buffer, ignoring moves smaller than `minDelta` (noise). */
+function countDirectionReversals(buffer: { t: number; x: number }[], minDelta: number): number {
+  let reversals = 0;
+  let lastSign = 0;
+  for (let i = 1; i < buffer.length; i++) {
+    const delta = buffer[i]!.x - buffer[i - 1]!.x;
+    if (Math.abs(delta) < minDelta) continue;
+    const sign = Math.sign(delta);
+    if (lastSign !== 0 && sign !== lastSign) reversals++;
+    lastSign = sign;
+  }
+  return reversals;
+}
+
+// --- Hand shape classification (static gestures) ----------------------------
+
+const FINGER_JOINTS = {
+  thumb: { mcp: 2, tip: 4 },
+  index: { mcp: 5, tip: 8 },
+  middle: { mcp: 9, tip: 12 },
+  ring: { mcp: 13, tip: 16 },
+  pinky: { mcp: 17, tip: 20 },
+} as const;
+
+interface HandShape {
+  thumbExt: boolean;
+  indexExt: boolean;
+  middleExt: boolean;
+  ringExt: boolean;
+  pinkyExt: boolean;
+  pinchDistRatio: number;
+}
+
+function analyzeHandShape(points: TrackingPoint[]): HandShape {
+  const wrist = points[0]!;
+  const scale = Math.max(dist2D(wrist, points[9]!), 1e-4); // wrist-to-middle-MCP, a rough hand-size reference
+  const extended = (mcpIdx: number, tipIdx: number) =>
+    dist2D(wrist, points[tipIdx]!) > dist2D(wrist, points[mcpIdx]!) * EXTENSION_RATIO;
+
+  return {
+    thumbExt: extended(FINGER_JOINTS.thumb.mcp, FINGER_JOINTS.thumb.tip),
+    indexExt: extended(FINGER_JOINTS.index.mcp, FINGER_JOINTS.index.tip),
+    middleExt: extended(FINGER_JOINTS.middle.mcp, FINGER_JOINTS.middle.tip),
+    ringExt: extended(FINGER_JOINTS.ring.mcp, FINGER_JOINTS.ring.tip),
+    pinkyExt: extended(FINGER_JOINTS.pinky.mcp, FINGER_JOINTS.pinky.tip),
+    pinchDistRatio: dist2D(points[4]!, points[8]!) / scale,
+  };
+}
+
+/** Single-frame shape match — `null` when the hand isn't in one of the 5 recognized static poses this frame. */
+function classifyStaticGesture(shape: HandShape): GestureType | null {
+  const nonThumbExtendedCount = [
+    shape.indexExt,
+    shape.middleExt,
+    shape.ringExt,
+    shape.pinkyExt,
+  ].filter(Boolean).length;
+
+  if (shape.pinchDistRatio < PINCH_DISTANCE_RATIO) return "pinch";
+  if (shape.thumbExt && nonThumbExtendedCount === 0) return "thumbs-up";
+  if (shape.indexExt && nonThumbExtendedCount === 1) return "point";
+  if (shape.thumbExt && nonThumbExtendedCount === 4) return "open-palm";
+  if (!shape.thumbExt && nonThumbExtendedCount === 0) return "closed-hand";
+  return null;
+}
+
+interface HandGestureState {
+  wristXBuffer: { t: number; x: number }[];
+  raiseHandSinceMs: number | null;
+  raiseHandFlagged: boolean;
+}
+
+function freshHandGestureState(): HandGestureState {
+  return { wristXBuffer: [], raiseHandSinceMs: null, raiseHandFlagged: false };
+}
+
+// --- Exercise rep-cycle detector --------------------------------------------
+// Generic repetitive-motion counter, not tied to any specific exercise — see
+// the "Movement set" label used when a completed set is POSTed. Tracks a
+// single scalar "rep signal" (average height of visible shoulders/hips) and
+// counts amplitude-gated crossings of its own rolling mean.
+
+interface RepCycleState {
+  signalBuffer: { t: number; y: number }[];
+  side: "above" | "below" | null;
+  crossingCount: number;
+  setReps: number;
+  setStartMs: number | null;
+  lastRepMs: number | null;
+}
+
+function freshRepCycleState(): RepCycleState {
+  return {
+    signalBuffer: [],
+    side: null,
+    crossingCount: 0,
+    setReps: 0,
+    setStartMs: null,
+    lastRepMs: null,
+  };
+}
+
+function poseRepSignal(points: TrackingPoint[]): number | null {
+  const candidates = [11, 12, 23, 24] // shoulders, hips
+    .map((i) => points[i])
+    .filter((p): p is TrackingPoint => !!p && (p.visibility ?? 0) >= MIN_POSE_VISIBILITY);
+  if (candidates.length === 0) return null;
+  return candidates.reduce((sum, p) => sum + p.y, 0) / candidates.length;
 }
 
 export interface UseTrackingSessionSyncOptions {
@@ -110,6 +269,11 @@ export function useTrackingSessionSync({ frameRef, active }: UseTrackingSessionS
   const yawExcursionSinceRef = useRef<number | null>(null);
   const yawExcursionFlaggedRef = useRef(false);
 
+  const handStatesRef = useRef<Map<"left" | "right", HandGestureState>>(new Map());
+  const lastGestureEmittedRef = useRef<Map<GestureType, number>>(new Map());
+  const prevPosePointsRef = useRef<TrackingPoint[] | null>(null);
+  const repCycleRef = useRef<RepCycleState>(freshRepCycleState());
+
   useEffect(() => {
     if (!active) return;
 
@@ -117,9 +281,169 @@ export function useTrackingSessionSync({ frameRef, active }: UseTrackingSessionS
     let rafHandle = 0;
     let flushHandle: ReturnType<typeof setInterval> | null = null;
 
-    function processFrame(frame: TrackingFrame) {
+    function maybeEmitGesture(type: GestureType, timestampMs: number) {
+      const last = lastGestureEmittedRef.current.get(type) ?? -Infinity;
+      if (timestampMs - last < GESTURE_DEBOUNCE_MS) return;
+      lastGestureEmittedRef.current.set(type, timestampMs);
+      accRef.current.events.push({
+        type: "gesture",
+        message: GESTURE_LABELS[type],
+        gestureType: type,
+      });
+    }
+
+    function processHands(frame: TrackingFrame) {
+      for (const hand of frame.hands) {
+        const shape = analyzeHandShape(hand.points);
+        const staticGesture = classifyStaticGesture(shape);
+        if (staticGesture) maybeEmitGesture(staticGesture, frame.timestampMs);
+
+        let state = handStatesRef.current.get(hand.hand);
+        if (!state) {
+          state = freshHandGestureState();
+          handStatesRef.current.set(hand.hand, state);
+        }
+        const wrist = hand.points[0]!;
+
+        state.wristXBuffer.push({ t: frame.timestampMs, x: wrist.x });
+        while (
+          state.wristXBuffer.length > 0 &&
+          frame.timestampMs - state.wristXBuffer[0]!.t > WAVE_WINDOW_MS
+        ) {
+          state.wristXBuffer.shift();
+        }
+        const roughlyOpen =
+          [shape.indexExt, shape.middleExt, shape.ringExt, shape.pinkyExt].filter(Boolean).length >=
+          3;
+        if (
+          roughlyOpen &&
+          countDirectionReversals(state.wristXBuffer, MIN_WAVE_DELTA) >= WAVE_MIN_REVERSALS
+        ) {
+          maybeEmitGesture("wave", frame.timestampMs);
+        }
+
+        if (wrist.y < RAISE_HAND_Y_THRESHOLD) {
+          if (state.raiseHandSinceMs === null) {
+            state.raiseHandSinceMs = frame.timestampMs;
+          } else if (
+            !state.raiseHandFlagged &&
+            frame.timestampMs - state.raiseHandSinceMs >= RAISE_HAND_MS
+          ) {
+            maybeEmitGesture("raise-hand", frame.timestampMs);
+            state.raiseHandFlagged = true;
+          }
+        } else {
+          state.raiseHandSinceMs = null;
+          state.raiseHandFlagged = false;
+        }
+      }
+    }
+
+    // Takes `sessionId` explicitly rather than reading `sessionIdRef` itself —
+    // the cleanup path calls this AFTER already nulling that ref (session
+    // teardown order), so reading the ref here would silently drop the final
+    // in-progress set right when the session ends.
+    async function closeExerciseSet(sessionId: string) {
+      const cycle = repCycleRef.current;
+      if (cycle.setReps === 0 || cycle.setStartMs === null || cycle.lastRepMs === null) return;
+
+      const durationSeconds = Math.max((cycle.lastRepMs - cycle.setStartMs) / 1000, 0);
+      const reps = cycle.setReps;
+      repCycleRef.current = freshRepCycleState();
+
+      try {
+        await apiFetch(`/api/v1/tracking/${sessionId}/exercise-set`, {
+          method: "POST",
+          body: JSON.stringify({ reps, durationSeconds }),
+        });
+      } catch {
+        // Best-effort — a dropped set just means one fewer row in the exercise history.
+      }
+    }
+
+    function processPoseMovement(frame: TrackingFrame) {
+      const pose = frame.pose;
+      if (!pose) return;
       const acc = accRef.current;
-      acc.frameCount += 1;
+      acc.poseFrameCount += 1;
+
+      const prevPoints = prevPosePointsRef.current;
+      if (prevPoints && prevPoints.length === pose.points.length) {
+        let totalDisplacement = 0;
+        let counted = 0;
+        for (let i = 0; i < pose.points.length; i++) {
+          const curr = pose.points[i]!;
+          const prev = prevPoints[i]!;
+          if ((curr.visibility ?? 1) < MIN_POSE_VISIBILITY) continue;
+          totalDisplacement += dist2D(curr, prev);
+          counted += 1;
+        }
+        if (counted > 0) acc.motionEnergySum += totalDisplacement / counted;
+      }
+      prevPosePointsRef.current = pose.points;
+
+      const leftHip = pose.points[23];
+      const rightHip = pose.points[24];
+      const leftAnkle = pose.points[27];
+      const rightAnkle = pose.points[28];
+      const hipVisible =
+        (leftHip?.visibility ?? 0) >= MIN_POSE_VISIBILITY ||
+        (rightHip?.visibility ?? 0) >= MIN_POSE_VISIBILITY;
+      const ankleVisible =
+        (leftAnkle?.visibility ?? 0) >= MIN_POSE_VISIBILITY ||
+        (rightAnkle?.visibility ?? 0) >= MIN_POSE_VISIBILITY;
+      if (hipVisible && ankleVisible) acc.lowerBodyVisibleFrames += 1;
+
+      if (hipVisible) {
+        const hipXs = [leftHip, rightHip]
+          .filter((p): p is TrackingPoint => !!p && (p.visibility ?? 0) >= MIN_POSE_VISIBILITY)
+          .map((p) => p.x);
+        acc.hipXSamples.push({
+          t: frame.timestampMs,
+          x: hipXs.reduce((s, v) => s + v, 0) / hipXs.length,
+        });
+      }
+
+      // Exercise rep-cycle detector — amplitude-gated crossings of the
+      // signal's own short rolling mean, generic across exercise types.
+      const signal = poseRepSignal(pose.points);
+      if (signal === null) return;
+      const cycle = repCycleRef.current;
+      cycle.signalBuffer.push({ t: frame.timestampMs, y: signal });
+      while (
+        cycle.signalBuffer.length > 0 &&
+        frame.timestampMs - cycle.signalBuffer[0]!.t > REP_SIGNAL_WINDOW_MS
+      ) {
+        cycle.signalBuffer.shift();
+      }
+      const mean = cycle.signalBuffer.reduce((s, p) => s + p.y, 0) / cycle.signalBuffer.length;
+      const deviation = signal - mean;
+      const half = REP_AMPLITUDE_THRESHOLD / 2;
+      const side: "above" | "below" | null =
+        deviation > half ? "above" : deviation < -half ? "below" : null;
+
+      if (side && cycle.side !== null && side !== cycle.side) {
+        cycle.crossingCount += 1;
+        if (cycle.crossingCount % 2 === 0) {
+          if (cycle.setReps === 0) cycle.setStartMs = frame.timestampMs;
+          cycle.setReps += 1;
+          cycle.lastRepMs = frame.timestampMs;
+        }
+      }
+      if (side) cycle.side = side;
+
+      if (
+        cycle.setReps > 0 &&
+        cycle.lastRepMs !== null &&
+        frame.timestampMs - cycle.lastRepMs > SET_GAP_MS &&
+        sessionIdRef.current
+      ) {
+        void closeExerciseSet(sessionIdRef.current);
+      }
+    }
+
+    function processFace(frame: TrackingFrame) {
+      const acc = accRef.current;
 
       const face = frame.face;
       if (!face) {
@@ -209,6 +533,13 @@ export function useTrackingSessionSync({ frameRef, active }: UseTrackingSessionS
       }
     }
 
+    function processFrame(frame: TrackingFrame) {
+      accRef.current.frameCount += 1;
+      processFace(frame);
+      if (frame.hands.length > 0) processHands(frame);
+      processPoseMovement(frame);
+    }
+
     function tick() {
       if (cancelled) return;
       const frame = frameRef.current;
@@ -229,6 +560,16 @@ export function useTrackingSessionSync({ frameRef, active }: UseTrackingSessionS
       const pitch = meanAndStdDev(acc.pitchDevSum, acc.pitchDevSumSq, acc.rotationSampleCount);
       const roll = meanAndStdDev(acc.rollDevSum, acc.rollDevSumSq, acc.rotationSampleCount);
 
+      const hasPoseData = acc.poseFrameCount > 0;
+      const motionEnergy = hasPoseData ? acc.motionEnergySum / acc.poseFrameCount : undefined;
+      const lowerBodyVisible = hasPoseData
+        ? acc.lowerBodyVisibleFrames / acc.poseFrameCount >= LOWER_BODY_VISIBLE_FRACTION
+        : undefined;
+      const windowDurationMs = Math.max(windowEnd.getTime() - acc.windowStart.getTime(), 1);
+      const gaitCadencePerMin = hasPoseData
+        ? countDirectionReversals(acc.hipXSamples, MIN_WAVE_DELTA) * (60_000 / windowDurationMs)
+        : undefined;
+
       accRef.current = freshAccumulator();
 
       try {
@@ -248,7 +589,10 @@ export function useTrackingSessionSync({ frameRef, active }: UseTrackingSessionS
             yawStdDev: yaw.stdDev,
             pitchStdDev: pitch.stdDev,
             rollStdDev: roll.stdDev,
-            events: acc.events.length > 0 ? acc.events.slice(0, 5) : undefined,
+            motionEnergy,
+            lowerBodyVisible,
+            gaitCadencePerMin,
+            events: acc.events.length > 0 ? acc.events.slice(0, 20) : undefined,
           }),
         });
       } catch {
@@ -278,6 +622,10 @@ export function useTrackingSessionSync({ frameRef, active }: UseTrackingSessionS
         faceLostFlaggedRef.current = false;
         yawExcursionSinceRef.current = null;
         yawExcursionFlaggedRef.current = false;
+        handStatesRef.current = new Map();
+        lastGestureEmittedRef.current = new Map();
+        prevPosePointsRef.current = null;
+        repCycleRef.current = freshRepCycleState();
 
         rafHandle = requestAnimationFrame(tick);
         flushHandle = setInterval(() => void flush(false), FLUSH_INTERVAL_MS);
@@ -298,11 +646,13 @@ export function useTrackingSessionSync({ frameRef, active }: UseTrackingSessionS
       sessionIdRef.current = null;
       if (!sessionId) return;
 
-      void flush(true).then(() =>
-        apiFetch(`/api/v1/tracking/${sessionId}/stop`, { method: "POST" }).catch(() => {
-          // Best-effort — an unstopped session just stays "active" server-side.
-        }),
-      );
+      void flush(true)
+        .then(() => closeExerciseSet(sessionId))
+        .then(() =>
+          apiFetch(`/api/v1/tracking/${sessionId}/stop`, { method: "POST" }).catch(() => {
+            // Best-effort — an unstopped session just stays "active" server-side.
+          }),
+        );
     };
     // frameRef is a stable ref object for the lifetime of the component.
     // eslint-disable-next-line react-hooks/exhaustive-deps

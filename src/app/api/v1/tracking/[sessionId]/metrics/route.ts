@@ -12,6 +12,7 @@ import {
   computeAttentionScore,
   computePostureScore,
   computeFatigueScore,
+  classifyMovementState,
 } from "@/server/services/intelligence-metrics-service";
 import type { Prisma } from "@prisma/client";
 
@@ -37,15 +38,23 @@ const metricsSchema = z.object({
   yawStdDev: z.number().min(0),
   pitchStdDev: z.number().min(0),
   rollStdDev: z.number().min(0),
+  // Movement fields — only present when "pose" tracking mode is on for this
+  // window (off by default, see DEFAULT_TRACKING_CONFIG).
+  motionEnergy: z.number().min(0).optional(),
+  lowerBodyVisible: z.boolean().optional(),
+  gaitCadencePerMin: z.number().min(0).optional(),
   events: z
     .array(
       z.object({
-        type: z.enum(["distraction", "drowsiness_alert"]),
+        type: z.enum(["distraction", "drowsiness_alert", "gesture"]),
         message: z.string().min(1),
         durationSeconds: z.number().min(0).optional(),
+        gestureType: z
+          .enum(["wave", "raise-hand", "point", "thumbs-up", "pinch", "open-palm", "closed-hand"])
+          .optional(),
       }),
     )
-    .max(5)
+    .max(20)
     .optional(),
 });
 
@@ -86,6 +95,15 @@ export async function POST(
     const postureScore = computePostureScore(aggregate);
     const fatigueScore = computeFatigueScore(aggregate);
 
+    const hasMovementData = body.motionEnergy !== undefined && body.lowerBodyVisible !== undefined;
+    const movementState = hasMovementData
+      ? classifyMovementState({
+          motionEnergy: body.motionEnergy!,
+          lowerBodyVisible: body.lowerBodyVisible!,
+          gaitCadencePerMin: body.gaitCadencePerMin ?? 0,
+        })
+      : undefined;
+
     const prisma = await getPrisma();
     const [sample] = await prisma.$transaction([
       prisma.trackingMetricSample.create({
@@ -97,6 +115,10 @@ export async function POST(
           attentionScore,
           postureScore,
           fatigueScore,
+          motionEnergy: body.motionEnergy,
+          lowerBodyVisible: body.lowerBodyVisible,
+          gaitCadencePerMin: body.gaitCadencePerMin,
+          movementState,
         },
       }),
       ...(body.events ?? []).map((event) =>
@@ -105,7 +127,10 @@ export async function POST(
             sessionId,
             type: toPrismaEventType(event.type),
             message: event.message,
-            data: { durationSeconds: event.durationSeconds ?? 0 } as Prisma.InputJsonValue,
+            data: {
+              durationSeconds: event.durationSeconds ?? 0,
+              ...(event.gestureType ? { gestureType: event.gestureType } : {}),
+            } as Prisma.InputJsonValue,
           },
         }),
       ),

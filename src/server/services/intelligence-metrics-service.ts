@@ -190,3 +190,51 @@ export const FACE_LOST_DISTRACTION_MS = 3000;
 export const YAW_EXCURSION_DEG = 30;
 export const YAW_EXCURSION_MS = 2500;
 export const LONG_CLOSURE_MS = 500; // eye closure this long or longer = microsleep proxy, not a normal blink
+
+// --- Movement pattern (Phase 2, "pose" mode only) ---------------------------
+//
+// Sitting/standing are plausible from a desk webcam; walking/running need
+// the lower body to actually be visible AND moving, which is rare for a
+// laptop-camera desk setup — this will correctly show near-zero minutes for
+// those two states in typical use. That's the honest result of the input
+// signal, not a bug to compensate for.
+
+export type MovementState = "sitting" | "standing" | "walking" | "running" | "idle";
+
+export interface RawMovementAggregate {
+  motionEnergy: number; // avg per-frame displacement across visible pose points (normalized coordinate units)
+  lowerBodyVisible: boolean; // hips/knees/ankles above the visibility threshold this window
+  gaitCadencePerMin: number; // zero-crossing rate of hip x-position, extrapolated to a per-minute rate; 0 if not periodic
+}
+
+const MOTION_ENERGY_IDLE_THRESHOLD = 0.002; // below this, essentially motionless
+const WALKING_CADENCE_PER_MIN = 30; // periodic hip oscillation at or above this rate reads as gait, not fidgeting
+const RUNNING_CADENCE_PER_MIN = 90;
+
+/**
+ * One dominant state per ~10s window, computed server-side from the client's
+ * tallied motion/visibility/periodicity aggregate — same "client tallies,
+ * server classifies" principle as attention/posture/fatigue above.
+ */
+export function classifyMovementState(agg: RawMovementAggregate): MovementState {
+  if (agg.motionEnergy < MOTION_ENERGY_IDLE_THRESHOLD) return "idle";
+  if (agg.gaitCadencePerMin >= RUNNING_CADENCE_PER_MIN) return "running";
+  if (agg.gaitCadencePerMin >= WALKING_CADENCE_PER_MIN) return "walking";
+  return agg.lowerBodyVisible ? "standing" : "sitting";
+}
+
+// --- Activity quality (Phase 2 trend) ---------------------------------------
+
+/**
+ * 0-100 "how engaged and active was this day" proxy — there's no independent
+ * movement-quality signal without deep per-rep form analysis (that's what a
+ * real per-set `formScore` is for), so this blends attention with how much
+ * of the tracked time was actively spent (not idle).
+ */
+export function computeActivityQualityScore(
+  attentionScore: number,
+  activeFraction: number,
+): number {
+  const score = 0.6 * (attentionScore / 100) + 0.4 * clamp(activeFraction, 0, 1);
+  return round(100 * clamp(score, 0, 1));
+}

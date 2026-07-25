@@ -51,6 +51,19 @@ enum TrackingEventType {
   completed
   distraction
   drowsiness_alert
+  gesture
+}
+
+// Sitting/standing are plausible from a desk webcam; walking/running require
+// the lower body to actually be visible and moving, which is rare for a
+// laptop-camera desk setup — see classifyMovementState() in
+// intelligence-metrics-service.ts for exactly how this is derived.
+enum MovementState {
+  sitting
+  standing
+  walking
+  running
+  idle
 }
 
 enum ReportFormat {
@@ -95,6 +108,7 @@ model Organization {
   apiKeys               ApiKey[]
   trackingSessions      TrackingSession[]
   trackingMetricSamples TrackingMetricSample[]
+  exerciseSets          ExerciseSet[]
   analyticsSnapshots    AnalyticsSnapshot[]
   reports               Report[]
   webhooks              Webhook[]
@@ -133,6 +147,7 @@ model User {
   apiKeys               ApiKey[]
   trackingSessions      TrackingSession[]
   trackingMetricSamples TrackingMetricSample[]
+  exerciseSets          ExerciseSet[]
   analyticsSnapshots    AnalyticsSnapshot[]
   reports               Report[]
   auditLogEntries       AuditLogEntry[]
@@ -199,6 +214,7 @@ model TrackingSession {
   user          User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
   events        TrackingEvent[]
   metricSamples TrackingMetricSample[]
+  exerciseSets  ExerciseSet[]
 
   @@index([orgId, status])
   @@map("tracking_sessions")
@@ -255,6 +271,15 @@ model TrackingMetricSample {
   postureScore   Float
   fatigueScore   Float
 
+  // Movement fields are nullable — only populated when "pose" tracking mode
+  // is on for this window (off by default). motionEnergy/lowerBodyVisible/
+  // gaitCadencePerMin are the raw client-tallied inputs; movementState is
+  // computed server-side from them, same principle as the scores above.
+  motionEnergy      Float?
+  lowerBodyVisible  Boolean?
+  gaitCadencePerMin Float?
+  movementState     MovementState?
+
   createdAt DateTime @default(now())
 
   organization Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
@@ -264,6 +289,33 @@ model TrackingMetricSample {
   @@index([orgId, userId, windowStart])
   @@index([sessionId, windowStart])
   @@map("tracking_metric_samples")
+}
+
+/**
+ * A completed burst of repetitive motion, auto-detected client-side from
+ * pose landmarks (peak/valley cycles in hip+shoulder height — see
+ * use-tracking-session-sync.ts) — NOT tied to a specific exercise. Which
+ * exercise it is (squat vs. shoulder-roll vs. lunge) isn't determinable
+ * without a trained per-exercise classifier, so `exerciseName` is always the
+ * generic "Movement set" rather than a fabricated specific label.
+ */
+model ExerciseSet {
+  id               String   @id @default(cuid())
+  orgId            String
+  userId           String
+  sessionId        String
+  exerciseName     String
+  reps             Int
+  durationSeconds  Int
+  caloriesEstimate Int
+  createdAt        DateTime @default(now())
+
+  organization Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session      TrackingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, userId, createdAt])
+  @@map("exercise_sets")
 }
 
 model AnalyticsSnapshot {

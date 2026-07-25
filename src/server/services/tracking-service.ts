@@ -27,7 +27,8 @@ export type ApiTrackingEventType =
   | "form-alert"
   | "completed"
   | "distraction"
-  | "drowsiness_alert";
+  | "drowsiness_alert"
+  | "gesture";
 
 export type ApiTrackingEvent = Omit<TrackingEvent, "type"> & { type: ApiTrackingEventType };
 
