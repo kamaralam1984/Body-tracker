@@ -32,12 +32,18 @@ export function proxy() {
       "Content-Security-Policy",
       [
         "default-src 'self'",
-        "script-src 'self' 'unsafe-inline'",
+        "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
         "style-src 'self' 'unsafe-inline'",
         "img-src 'self' data: blob:",
         "font-src 'self' data:",
         "media-src 'self' blob:",
-        "connect-src 'self'",
+        // MediaPipe Tasks Vision (src/features/tracking/lib/tracking-engine.ts)
+        // fetches its WASM runtime from jsdelivr and pose/hand/face .task
+        // models from storage.googleapis.com, and runs the WASM on a
+        // blob: worker — all three need explicit CSP allowances or camera
+        // tracking silently fails to initialize in production.
+        "connect-src 'self' https://cdn.jsdelivr.net https://storage.googleapis.com",
+        "worker-src 'self' blob:",
         "frame-ancestors 'none'",
         "base-uri 'self'",
         "form-action 'self'",
