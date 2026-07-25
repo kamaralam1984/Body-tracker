@@ -1,11 +1,12 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { BarChart3, RefreshCw, Settings } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import {
   CameraCard,
   CameraProvider,
@@ -42,6 +43,19 @@ function CameraPageContent() {
   // entirely, since the Fullscreen API only renders the fullscreened
   // element's own subtree, not its siblings.
   const fullscreenTargetRef = useRef<HTMLDivElement>(null);
+  // The card's `aspect-video` sizing only ever produces a 16:9 box, so
+  // fullscreening the wrapper (which the Fullscreen API stretches to fill
+  // the viewport) still leaves a small 16:9 preview floating in a sea of
+  // black on tall mobile screens. Track fullscreen state so the card can
+  // drop its aspect ratio and fill the wrapper's full height instead.
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const handleChange = () =>
+      setIsFullscreen(document.fullscreenElement === fullscreenTargetRef.current);
+    document.addEventListener("fullscreenchange", handleChange);
+    return () => document.removeEventListener("fullscreenchange", handleChange);
+  }, []);
 
   const cardAction = (() => {
     switch (status) {
@@ -97,9 +111,21 @@ function CameraPageContent() {
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         <div className="flex flex-col gap-4 xl:col-span-2">
-          <div ref={fullscreenTargetRef} className="relative">
-            <CameraCard ref={cardRef} action={cardAction} />
-            <TrackingOverlay containerRef={cardRef} />
+          <div
+            ref={fullscreenTargetRef}
+            className={cn("relative", isFullscreen && "fixed inset-0 h-screen w-screen bg-black")}
+          >
+            <CameraCard
+              ref={cardRef}
+              action={cardAction}
+              className={
+                isFullscreen ? "aspect-auto h-full w-full rounded-none border-0" : undefined
+              }
+            />
+            <TrackingOverlay
+              containerRef={cardRef}
+              className={isFullscreen ? "rounded-none" : undefined}
+            />
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-3">
