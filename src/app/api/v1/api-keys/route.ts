@@ -5,6 +5,7 @@ import { resolvePrincipal, requireScope, rateLimitResponseHeaders } from "@/serv
 import { ok, errorResponse } from "@/server/http/respond";
 import { parseJsonBody, parseQuery } from "@/server/http/validate";
 import { paginate } from "@/server/http/pagination";
+import { parseSort, searchWhere } from "@/server/http/sort";
 import { writeAudit } from "@/server/http/audit";
 import { generateApiKey } from "@/server/auth/api-keys";
 import { ALL_SCOPES, type Scope } from "@/server/db/entities";
@@ -12,21 +13,30 @@ import { sanitizeApiKey } from "@/server/services/auth-service";
 
 export const dynamic = "force-dynamic";
 
-const listQuerySchema = z.object({
+const SORTABLE_FIELDS = ["name", "status", "createdAt", "lastUsedAt"] as const;
+const SEARCHABLE_FIELDS = ["name"] as const;
+
+export const listQuerySchema = z.object({
   cursor: z.string().optional(),
   limit: z.coerce.number().int().positive().max(100).default(20),
+  sort: z.string().optional(),
+  search: z.string().min(1).optional(),
 });
 
 export async function GET(request: NextRequest) {
   try {
     const principal = await resolvePrincipal(request);
     requireScope(principal, "api-keys:read");
-    const { cursor, limit } = parseQuery(request.nextUrl.searchParams, listQuerySchema);
+    const { cursor, limit, sort, search } = parseQuery(
+      request.nextUrl.searchParams,
+      listQuerySchema,
+    );
     const prisma = await getPrisma();
+    const orderBy = parseSort(sort, SORTABLE_FIELDS);
     const orgKeys = (
       await prisma.apiKey.findMany({
-        where: { orgId: principal.orgId },
-        orderBy: { createdAt: "asc" },
+        where: { orgId: principal.orgId, ...searchWhere(search, SEARCHABLE_FIELDS) },
+        orderBy: orderBy.length > 0 ? orderBy : { createdAt: "asc" },
       })
     ).map(sanitizeApiKey);
     const { items, nextCursor, total } = paginate(orgKeys, cursor, limit);
@@ -36,7 +46,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-const createSchema = z.object({
+export const createSchema = z.object({
   name: z.string().min(1),
   scopes: z
     .array(z.string())

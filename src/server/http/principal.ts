@@ -70,7 +70,7 @@ export async function resolvePrincipal(request: Request): Promise<Principal> {
       })
       .catch((error) => console.error("[principal] failed to record API key usage", error));
 
-    const rateLimit = checkRateLimit(`apikey:${key.id}`, {
+    const rateLimit = await checkRateLimit(`apikey:${key.id}`, {
       limit: key.rateLimitPerMinute,
       windowMs: 60_000,
     });
@@ -93,7 +93,7 @@ export async function resolvePrincipal(request: Request): Promise<Principal> {
     const user = await prisma.user.findUnique({ where: { id: payload.sub } });
     if (!user) throw unauthorized("Token subject not found");
 
-    const rateLimit = checkRateLimit(`user:${user.id}`, { limit: 600, windowMs: 60_000 });
+    const rateLimit = await checkRateLimit(`user:${user.id}`, { limit: 600, windowMs: 60_000 });
 
     return {
       userId: user.id,

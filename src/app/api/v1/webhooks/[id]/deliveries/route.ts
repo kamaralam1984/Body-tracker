@@ -10,7 +10,7 @@ import { toApiDelivery } from "@/server/services/webhooks-service";
 
 export const dynamic = "force-dynamic";
 
-const listQuerySchema = z.object({
+export const listQuerySchema = z.object({
   cursor: z.string().nullable().optional(),
   limit: z.coerce.number().int().min(1).max(100).optional().default(20),
 });

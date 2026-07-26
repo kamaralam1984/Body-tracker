@@ -8,7 +8,7 @@ import { paginate } from "@/server/http/pagination";
 
 export const dynamic = "force-dynamic";
 
-const querySchema = z.object({
+export const querySchema = z.object({
   userId: z.string().optional(),
   cursor: z.string().nullable().optional(),
   limit: z.coerce.number().int().min(1).max(100).optional().default(20),

@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
  * trained per-exercise classifier, so `exerciseName` defaults to the
  * generic "Movement set" rather than a fabricated specific label.
  */
-const exerciseSetSchema = z.object({
+export const exerciseSetSchema = z.object({
   exerciseName: z.string().min(1).max(60).optional(),
   reps: z.number().int().min(1),
   durationSeconds: z.number().min(0),

@@ -1,6 +1,17 @@
 import { getPrisma } from "@/server/db/prisma";
 import { notFound } from "@/server/http/errors";
+import { parseSort, searchWhere } from "@/server/http/sort";
 import type { TrackingSession, TrackingStatus } from "@prisma/client";
+
+const SORTABLE_FIELDS = [
+  "title",
+  "activityKind",
+  "status",
+  "startedAt",
+  "createdAt",
+  "updatedAt",
+] as const;
+const SEARCHABLE_FIELDS = ["title", "activityKind"] as const;
 
 /**
  * Shared helpers for the Sessions domain (`/api/v1/sessions`).
@@ -19,21 +30,25 @@ export type { TrackingSession, TrackingStatus };
 export interface SessionFilters {
   status?: TrackingStatus;
   activityKind?: string;
+  sort?: string;
+  search?: string;
 }
 
-/** Returns an org's tracking sessions, optionally filtered, sorted newest-first by createdAt. */
+/** Returns an org's tracking sessions, optionally filtered/searched, sorted by `sort` (default: newest-first by createdAt). */
 export async function listOrgSessions(
   orgId: string,
   filters: SessionFilters = {},
 ): Promise<TrackingSession[]> {
   const prisma = await getPrisma();
+  const orderBy = parseSort(filters.sort, SORTABLE_FIELDS);
   return prisma.trackingSession.findMany({
     where: {
       orgId,
       ...(filters.status ? { status: filters.status } : {}),
       ...(filters.activityKind ? { activityKind: filters.activityKind } : {}),
+      ...searchWhere(filters.search, SEARCHABLE_FIELDS),
     },
-    orderBy: { createdAt: "desc" },
+    orderBy: orderBy.length > 0 ? orderBy : { createdAt: "desc" },
   });
 }
 

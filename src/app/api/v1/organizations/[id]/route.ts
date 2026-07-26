@@ -9,7 +9,7 @@ import { writeAudit } from "@/server/http/audit";
 
 export const dynamic = "force-dynamic";
 
-const patchSchema = z.object({
+export const patchSchema = z.object({
   name: z.string().min(1).optional(),
   plan: z.enum(["starter", "growth", "enterprise"]).optional(),
 });

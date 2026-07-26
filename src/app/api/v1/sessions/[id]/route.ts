@@ -9,7 +9,7 @@ import { getOrgSession } from "@/server/services/sessions-service";
 
 export const dynamic = "force-dynamic";
 
-const patchSchema = z.object({
+export const patchSchema = z.object({
   title: z.string().min(1).optional(),
 });
 

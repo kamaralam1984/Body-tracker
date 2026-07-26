@@ -10,7 +10,7 @@ import { sanitizeUser } from "@/server/services/organizations-service";
 
 export const dynamic = "force-dynamic";
 
-const patchSchema = z.object({
+export const patchSchema = z.object({
   role: z.enum(["owner", "admin", "manager", "member", "viewer"]).optional(),
   teamId: z.string().nullable().optional(),
   status: z.enum(["active", "invited", "suspended"]).optional(),

@@ -1,10 +1,15 @@
 import { ApiError } from "./errors";
+import { getRedisClient } from "../redis/client";
 
 /**
- * In-memory sliding-window rate limiter — a stand-in for a Redis-backed
- * limiter in production (see docker-compose.yml for the intended Redis
- * service). Keyed per caller (API key id, user id, or IP) and per bucket
- * name so different endpoint classes can carry different limits.
+ * Rate limiter, keyed per caller (API key id, user id, or IP) and per
+ * bucket name so different endpoint classes can carry different limits.
+ * Backed by Redis (shared across PM2's cluster-mode workers) when
+ * `REDIS_URL` is set; otherwise falls back to the in-memory fixed-window
+ * `Map` below, which is correct for a single worker but under-counts
+ * across a multi-worker cluster deployment — this is the concrete,
+ * load-bearing reason to set `REDIS_URL` in production, not a theoretical
+ * nice-to-have.
  */
 
 interface Window {
@@ -20,7 +25,7 @@ export interface RateLimitResult {
   resetAt: number;
 }
 
-export function checkRateLimit(
+function checkRateLimitInMemory(
   key: string,
   opts: { limit: number; windowMs: number },
 ): RateLimitResult {
@@ -41,6 +46,52 @@ export function checkRateLimit(
   }
 
   return { limit: opts.limit, remaining: opts.limit - existing.count, resetAt: existing.resetAt };
+}
+
+async function checkRateLimitRedis(
+  key: string,
+  opts: { limit: number; windowMs: number },
+): Promise<RateLimitResult> {
+  const redis = getRedisClient();
+  if (!redis) throw new Error("checkRateLimitRedis called without a Redis client");
+
+  const redisKey = `ratelimit:${key}`;
+  const count = await redis.incr(redisKey);
+  if (count === 1) {
+    await redis.pexpire(redisKey, opts.windowMs);
+  }
+  const ttlMs = await redis.pttl(redisKey);
+  const resetAt = Date.now() + (ttlMs > 0 ? ttlMs : opts.windowMs);
+
+  if (count > opts.limit) {
+    throw new ApiError("rate_limited", "Rate limit exceeded — please slow down", {
+      retryAfterMs: Math.max(0, resetAt - Date.now()),
+    });
+  }
+
+  return { limit: opts.limit, remaining: Math.max(0, opts.limit - count), resetAt };
+}
+
+export async function checkRateLimit(
+  key: string,
+  opts: { limit: number; windowMs: number },
+): Promise<RateLimitResult> {
+  const redis = getRedisClient();
+  if (!redis) return checkRateLimitInMemory(key, opts);
+
+  try {
+    return await checkRateLimitRedis(key, opts);
+  } catch (error) {
+    // A real, deliberate rate-limit rejection — propagate it.
+    if (error instanceof ApiError) throw error;
+    // A Redis connectivity problem — degrade to per-worker in-memory
+    // limiting rather than failing every request outright.
+    console.error(
+      "[rate-limit] Redis unavailable, falling back to in-memory for this request",
+      error,
+    );
+    return checkRateLimitInMemory(key, opts);
+  }
 }
 
 export function rateLimitHeaders(result: RateLimitResult): Record<string, string> {

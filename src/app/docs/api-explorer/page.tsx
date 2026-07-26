@@ -1,5 +1,5 @@
 import { Badge } from "@/components/ui/badge";
-import { ApiExplorer } from "@/features/docs";
+import { ApiReferenceTabs } from "@/features/docs";
 
 export default function ApiExplorerPage() {
   return (
@@ -10,17 +10,20 @@ export default function ApiExplorerPage() {
           <Badge variant="success">Live</Badge>
         </div>
         <p className="text-muted-foreground max-w-3xl text-lg">
-          A real request console for the Body Tracker REST API — every request here hits the actual{" "}
+          <strong>Try it out</strong> is a real request console for the Body Tracker REST API —
+          every request hits the actual{" "}
           <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">/api/v1</code>{" "}
-          endpoints running in this deployment and shows the real response. The endpoint catalog is
-          read live from{" "}
+          endpoints running in this deployment and shows the real response.{" "}
+          <strong>Browse docs</strong> is a read-only Redoc rendering of the same specification for
+          reference reading. Both, plus the downloads on the right, are generated live from{" "}
           <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
             /api/v1/openapi.json
           </code>
-          .
+          , which is itself derived from the real Zod validators each endpoint uses — so none of
+          this can drift from the actual API.
         </p>
       </div>
-      <ApiExplorer />
+      <ApiReferenceTabs />
     </div>
   );
 }

@@ -12,7 +12,7 @@ function daysAgoDateOnly(days: number): string {
   return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
-const querySchema = z.object({
+export const querySchema = z.object({
   from: z.iso.date().optional(),
   to: z.iso.date().optional(),
   userId: z.string().optional(),

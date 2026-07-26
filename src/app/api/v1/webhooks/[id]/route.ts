@@ -19,7 +19,7 @@ const webhookEventEnum = z.enum([
   "user.invited",
 ]);
 
-const patchSchema = z.object({
+export const patchSchema = z.object({
   url: z.string().url().optional(),
   events: z.array(webhookEventEnum).min(1).optional(),
   status: z.enum(["active", "disabled"]).optional(),

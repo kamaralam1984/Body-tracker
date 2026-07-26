@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-const updateMeSchema = z.object({
+export const updateMeSchema = z.object({
   name: z.string().min(1).optional(),
 });
 

@@ -10,6 +10,7 @@ export * from "./components/code-block";
 export * from "./components/code-tabs";
 export * from "./components/api-card";
 export * from "./components/api-explorer";
+export * from "./components/api-reference-tabs";
 export * from "./components/table-of-contents";
 export * from "./components/docs-search-dialog";
 export * from "./components/docs-sidebar";

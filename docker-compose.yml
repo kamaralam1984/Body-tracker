@@ -1,12 +1,16 @@
 # Production-shaped topology for the Body Tracker API Platform.
 #
-# NOTE: the application currently ships with an in-memory data store
-# (src/server/db/store.ts) as a stand-in for real persistence, so `app`
-# does not yet read DATABASE_URL/REDIS_URL. This file documents and wires
-# the real services (Postgres, Redis) the app is designed to connect to —
-# once src/server/db/store.ts is swapped for a Prisma-backed store (see
-# prisma/schema.prisma) and the rate limiter/cache move to Redis, no
-# changes to this file are needed.
+# The app is Prisma-backed against real Postgres (see prisma/schema.prisma)
+# and reads DATABASE_URL directly — that part of this file is already true
+# in production, not aspirational. REDIS_URL is still opt-in: when unset,
+# the app degrades to correct-for-a-single-worker in-memory rate limiting
+# (src/server/http/rate-limit.ts); when set, rate limiting (and any other
+# state that needs to be shared across PM2's cluster-mode workers — see
+# ecosystem.config.js's `instances: "max"`) uses this real Redis instance
+# instead. The VPS bare-metal deploy path doesn't use this compose file at
+# all (see ecosystem.config.js) — this documents the Docker-based topology
+# and is also the reference for what to install directly on the VPS if you
+# want Redis there instead (e.g. `apt install redis-server`).
 
 services:
   app:

@@ -7,6 +7,7 @@ import { parseJsonBody, parseQuery } from "@/server/http/validate";
 import { paginate } from "@/server/http/pagination";
 import { writeAudit } from "@/server/http/audit";
 import { getOrGenerateReportContent } from "@/server/services/reports-service";
+import { dispatchWebhookEvent } from "@/server/services/webhooks-service";
 import type {
   Report as EntityReport,
   AnalyticsSnapshot as EntitySnapshot,
@@ -18,13 +19,13 @@ import type {
 
 export const dynamic = "force-dynamic";
 
-const listQuerySchema = z.object({
+export const listQuerySchema = z.object({
   status: z.enum(["queued", "generating", "ready", "failed"]).optional(),
   cursor: z.string().nullable().optional(),
   limit: z.coerce.number().int().min(1).max(100).optional().default(20),
 });
 
-const createSchema = z.object({
+export const createSchema = z.object({
   title: z.string().min(1),
   format: z.enum(["pdf", "csv"]),
   periodStart: z.string().min(1),
@@ -131,6 +132,12 @@ export async function POST(request: NextRequest) {
       where: { id: report.id },
       data: { status: "ready", readyAt: new Date(), sizeBytes: buffer.byteLength },
     });
+
+    dispatchWebhookEvent(principal.orgId, "report.ready", {
+      reportId: report.id,
+      format: report.format,
+      sizeBytes: report.sizeBytes,
+    }).catch((error) => console.error("[webhooks] dispatch failed for report.ready", error));
 
     writeAudit({
       orgId: principal.orgId,

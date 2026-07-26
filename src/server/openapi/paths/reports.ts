@@ -1,4 +1,9 @@
 import type { OpenApiDocument } from "@/server/openapi/document";
+import { paramsFromZodObject, schemaRef } from "@/server/openapi/schema-registry";
+import {
+  createSchema as reportCreateSchema,
+  listQuerySchema as reportsListQuerySchema,
+} from "@/app/api/v1/reports/route";
 
 const security = [{ bearerAuth: [] }, { apiKeyAuth: [] }];
 
@@ -17,30 +22,6 @@ const reportIdParam = {
   required: true,
   description: "Report id",
   schema: { type: "string" },
-};
-
-const statusParam = {
-  name: "status",
-  in: "query" as const,
-  required: false,
-  description: "Filter by report status",
-  schema: { type: "string", enum: ["queued", "generating", "ready", "failed"] },
-};
-
-const cursorParam = {
-  name: "cursor",
-  in: "query" as const,
-  required: false,
-  description: "Opaque pagination cursor",
-  schema: { type: "string" },
-};
-
-const limitParam = {
-  name: "limit",
-  in: "query" as const,
-  required: false,
-  description: "Page size (1-100, default 20)",
-  schema: { type: "integer", minimum: 1, maximum: 100, default: 20 },
 };
 
 const reportSchema = {
@@ -66,7 +47,7 @@ export const reportsPaths: OpenApiDocument["paths"] = {
       tags: ["Reports"],
       summary: "List reports for the caller's organization",
       security,
-      parameters: [statusParam, cursorParam, limitParam],
+      parameters: paramsFromZodObject(reportsListQuerySchema, "query"),
       responses: {
         "200": {
           description: "Paginated list of reports, newest first",
@@ -91,18 +72,7 @@ export const reportsPaths: OpenApiDocument["paths"] = {
       requestBody: {
         required: true,
         content: {
-          "application/json": {
-            schema: {
-              type: "object",
-              required: ["title", "format", "periodStart", "periodEnd"],
-              properties: {
-                title: { type: "string", minLength: 1 },
-                format: { type: "string", enum: ["pdf", "csv"] },
-                periodStart: { type: "string" },
-                periodEnd: { type: "string" },
-              },
-            },
-          },
+          "application/json": { schema: schemaRef("ReportCreateRequest", reportCreateSchema) },
         },
       },
       responses: {

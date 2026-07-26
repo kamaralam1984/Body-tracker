@@ -5,17 +5,23 @@ import { resolvePrincipal, requireScope, rateLimitResponseHeaders } from "@/serv
 import { ok, errorResponse } from "@/server/http/respond";
 import { parseJsonBody, parseQuery } from "@/server/http/validate";
 import { paginate } from "@/server/http/pagination";
+import { parseSort, searchWhere } from "@/server/http/sort";
 import { forbidden } from "@/server/http/errors";
 import { writeAudit } from "@/server/http/audit";
 
 export const dynamic = "force-dynamic";
 
-const listQuerySchema = z.object({
+const SORTABLE_FIELDS = ["name", "createdAt"] as const;
+const SEARCHABLE_FIELDS = ["name"] as const;
+
+export const listQuerySchema = z.object({
   cursor: z.string().nullable().optional(),
   limit: z.coerce.number().int().min(1).max(100).optional().default(20),
+  sort: z.string().optional(),
+  search: z.string().min(1).optional(),
 });
 
-const createSchema = z.object({
+export const createSchema = z.object({
   name: z.string().min(1),
 });
 
@@ -28,9 +34,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
     const query = parseQuery(request.nextUrl.searchParams, listQuerySchema);
     const prisma = await getPrisma();
+    const orderBy = parseSort(query.sort, SORTABLE_FIELDS);
     const teams = await prisma.team.findMany({
-      where: { orgId: id },
-      orderBy: { createdAt: "asc" },
+      where: { orgId: id, ...searchWhere(query.search, SEARCHABLE_FIELDS) },
+      orderBy: orderBy.length > 0 ? orderBy : { createdAt: "asc" },
     });
 
     const page = paginate(teams, query.cursor, query.limit);

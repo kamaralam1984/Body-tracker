@@ -6,6 +6,7 @@ import { conflict } from "@/server/http/errors";
 import { writeAudit } from "@/server/http/audit";
 import { getOrgSession } from "@/server/services/sessions-service";
 import { appendTrackingEvent } from "@/server/services/tracking-service";
+import { dispatchWebhookEvent } from "@/server/services/webhooks-service";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,11 @@ export async function POST(
     });
 
     await appendTrackingEvent(session.id, "started", "Session started", {});
+
+    dispatchWebhookEvent(principal.orgId, "session.started", {
+      sessionId: session.id,
+      activityKind: session.activityKind,
+    }).catch((error) => console.error("[webhooks] dispatch failed for session.started", error));
 
     writeAudit({
       orgId: principal.orgId,

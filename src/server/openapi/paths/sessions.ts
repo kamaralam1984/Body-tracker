@@ -1,8 +1,18 @@
 import type { OpenApiDocument } from "@/server/openapi/document";
+import { paramsFromZodObject, schemaRef } from "@/server/openapi/schema-registry";
+import {
+  createSchema as sessionCreateSchema,
+  listQuerySchema as sessionsListQuerySchema,
+} from "@/app/api/v1/sessions/route";
+import { patchSchema as sessionPatchSchema } from "@/app/api/v1/sessions/[id]/route";
 
 /**
  * OpenAPI path fragment for the Sessions domain (`/api/v1/sessions`).
- * Merged into the platform-wide document via `mergePaths`.
+ * Merged into the platform-wide document via `mergePaths`. Request-side
+ * schemas (`requestBody`, query `parameters`) are derived from the actual
+ * Zod validators in `src/app/api/v1/sessions/**` via `schemaRef`/
+ * `paramsFromZodObject`, so they can't drift from what the route really
+ * accepts.
  */
 
 const trackingSessionSchema = {
@@ -39,22 +49,7 @@ export const sessionsPaths: OpenApiDocument["paths"] = {
       tags: ["Sessions"],
       summary: "List tracking sessions for the caller's organization",
       security,
-      parameters: [
-        {
-          name: "status",
-          in: "query",
-          required: false,
-          schema: { type: "string", enum: ["idle", "active", "paused", "completed"] },
-        },
-        { name: "activityKind", in: "query", required: false, schema: { type: "string" } },
-        { name: "cursor", in: "query", required: false, schema: { type: "string" } },
-        {
-          name: "limit",
-          in: "query",
-          required: false,
-          schema: { type: "integer", minimum: 1, maximum: 100 },
-        },
-      ],
+      parameters: paramsFromZodObject(sessionsListQuerySchema, "query"),
       responses: {
         "200": {
           description: "A page of tracking sessions, newest first.",
@@ -88,16 +83,7 @@ export const sessionsPaths: OpenApiDocument["paths"] = {
       requestBody: {
         required: true,
         content: {
-          "application/json": {
-            schema: {
-              type: "object",
-              required: ["title", "activityKind"],
-              properties: {
-                title: { type: "string", minLength: 1 },
-                activityKind: { type: "string", minLength: 1 },
-              },
-            },
-          },
+          "application/json": { schema: schemaRef("SessionCreateRequest", sessionCreateSchema) },
         },
       },
       responses: {
@@ -143,9 +129,7 @@ export const sessionsPaths: OpenApiDocument["paths"] = {
       requestBody: {
         required: true,
         content: {
-          "application/json": {
-            schema: { type: "object", properties: { title: { type: "string", minLength: 1 } } },
-          },
+          "application/json": { schema: schemaRef("SessionPatchRequest", sessionPatchSchema) },
         },
       },
       responses: {

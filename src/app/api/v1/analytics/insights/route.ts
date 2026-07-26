@@ -8,7 +8,7 @@ import { buildInsights } from "@/server/services/analytics-service";
 
 export const dynamic = "force-dynamic";
 
-const querySchema = z.object({
+export const querySchema = z.object({
   userId: z.string().optional(),
 });
 

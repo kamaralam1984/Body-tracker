@@ -1,4 +1,14 @@
 import type { OpenApiDocument } from "@/server/openapi/document";
+import { paramsFromZodObject, schemaRef } from "@/server/openapi/schema-registry";
+import { loginSchema } from "@/app/api/v1/auth/login/route";
+import { refreshSchema } from "@/app/api/v1/auth/refresh/route";
+import { logoutSchema } from "@/app/api/v1/auth/logout/route";
+import { updateMeSchema } from "@/app/api/v1/users/me/route";
+import { listQuerySchema as usersListQuerySchema } from "@/app/api/v1/users/route";
+import {
+  listQuerySchema as apiKeysListQuerySchema,
+  createSchema as apiKeysCreateSchema,
+} from "@/app/api/v1/api-keys/route";
 
 const errorResponse = {
   description: "Error response",
@@ -60,16 +70,7 @@ export const authUsersPaths: OpenApiDocument["paths"] = {
       requestBody: {
         required: true,
         content: {
-          "application/json": {
-            schema: {
-              type: "object",
-              required: ["email", "password"],
-              properties: {
-                email: { type: "string", format: "email" },
-                password: { type: "string" },
-              },
-            },
-          },
+          "application/json": { schema: schemaRef("AuthLoginRequest", loginSchema) },
         },
       },
       responses: {
@@ -93,13 +94,7 @@ export const authUsersPaths: OpenApiDocument["paths"] = {
       requestBody: {
         required: true,
         content: {
-          "application/json": {
-            schema: {
-              type: "object",
-              required: ["refreshToken"],
-              properties: { refreshToken: { type: "string" } },
-            },
-          },
+          "application/json": { schema: schemaRef("AuthRefreshRequest", refreshSchema) },
         },
       },
       responses: {
@@ -123,13 +118,7 @@ export const authUsersPaths: OpenApiDocument["paths"] = {
       requestBody: {
         required: true,
         content: {
-          "application/json": {
-            schema: {
-              type: "object",
-              required: ["refreshToken"],
-              properties: { refreshToken: { type: "string" } },
-            },
-          },
+          "application/json": { schema: schemaRef("AuthLogoutRequest", logoutSchema) },
         },
       },
       responses: {
@@ -172,9 +161,7 @@ export const authUsersPaths: OpenApiDocument["paths"] = {
       requestBody: {
         required: true,
         content: {
-          "application/json": {
-            schema: { type: "object", properties: { name: { type: "string" } } },
-          },
+          "application/json": { schema: schemaRef("UserUpdateRequest", updateMeSchema) },
         },
       },
       responses: {
@@ -193,15 +180,7 @@ export const authUsersPaths: OpenApiDocument["paths"] = {
       tags: ["Users"],
       summary: "List users in the caller's organization",
       security: [{ bearerAuth: [] }, { apiKeyAuth: [] }],
-      parameters: [
-        { name: "cursor", in: "query", required: false, schema: { type: "string" } },
-        {
-          name: "limit",
-          in: "query",
-          required: false,
-          schema: { type: "integer", minimum: 1, maximum: 100, default: 20 },
-        },
-      ],
+      parameters: paramsFromZodObject(usersListQuerySchema, "query"),
       responses: {
         "200": {
           description: "Paginated list of users",
@@ -232,15 +211,7 @@ export const authUsersPaths: OpenApiDocument["paths"] = {
       tags: ["API Keys"],
       summary: "List API keys in the caller's organization",
       security: [{ bearerAuth: [] }, { apiKeyAuth: [] }],
-      parameters: [
-        { name: "cursor", in: "query", required: false, schema: { type: "string" } },
-        {
-          name: "limit",
-          in: "query",
-          required: false,
-          schema: { type: "integer", minimum: 1, maximum: 100, default: 20 },
-        },
-      ],
+      parameters: paramsFromZodObject(apiKeysListQuerySchema, "query"),
       responses: {
         "200": {
           description: "Paginated list of API keys (secrets never included)",
@@ -272,17 +243,7 @@ export const authUsersPaths: OpenApiDocument["paths"] = {
       requestBody: {
         required: true,
         content: {
-          "application/json": {
-            schema: {
-              type: "object",
-              required: ["name", "scopes"],
-              properties: {
-                name: { type: "string" },
-                scopes: { type: "array", items: { type: "string" }, minItems: 1 },
-                rateLimitPerMinute: { type: "integer", minimum: 1, default: 120 },
-              },
-            },
-          },
+          "application/json": { schema: schemaRef("ApiKeyCreateRequest", apiKeysCreateSchema) },
         },
       },
       responses: {

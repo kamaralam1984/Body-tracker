@@ -7,6 +7,7 @@ import { writeAudit } from "@/server/http/audit";
 import { getOrgSession } from "@/server/services/sessions-service";
 import { appendTrackingEvent, computeElapsedSeconds } from "@/server/services/tracking-service";
 import { recordSessionCompletion } from "@/server/services/analytics-snapshot-service";
+import { dispatchWebhookEvent } from "@/server/services/webhooks-service";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +51,13 @@ export async function POST(
       repCount: session.repCount,
       avgFormScore: session.avgFormScore,
     });
+
+    dispatchWebhookEvent(principal.orgId, "session.completed", {
+      sessionId: session.id,
+      durationSeconds: session.durationSeconds,
+      repCount: session.repCount,
+      avgFormScore: session.avgFormScore,
+    }).catch((error) => console.error("[webhooks] dispatch failed for session.completed", error));
 
     writeAudit({
       orgId: principal.orgId,

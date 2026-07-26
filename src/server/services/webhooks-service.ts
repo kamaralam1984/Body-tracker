@@ -1,9 +1,11 @@
 import { createHmac, randomUUID } from "node:crypto";
+import type { Prisma } from "@prisma/client";
 import type {
   Webhook as PrismaWebhook,
   WebhookDelivery as PrismaWebhookDelivery,
   WebhookEventType,
 } from "@prisma/client";
+import { getPrisma } from "@/server/db/prisma";
 
 /**
  * Business logic shared by the webhooks routes, backed by the real Neon
@@ -154,4 +156,133 @@ export function buildSampleEventPayload(
 /** Signs a raw request body with the webhook's shared secret (HMAC-SHA256, hex-encoded). */
 export function signPayload(secret: string, rawBody: string): string {
   return createHmac("sha256", secret).update(rawBody).digest("hex");
+}
+
+async function performDelivery(
+  webhook: PrismaWebhook,
+  event: WebhookEvent,
+  payload: Record<string, unknown>,
+): Promise<{ succeeded: boolean; responseStatus: number | null; durationMs: number }> {
+  const body = JSON.stringify(payload);
+  const signature = signPayload(webhook.secret, body);
+  const startedAt = Date.now();
+  let responseStatus: number | null = null;
+  let succeeded = false;
+  try {
+    const response = await fetch(webhook.url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-BTK-Signature": `sha256=${signature}`,
+        "X-BTK-Event": event,
+      },
+      body,
+      signal: AbortSignal.timeout(5000),
+    });
+    responseStatus = response.status;
+    succeeded = response.ok;
+  } catch {
+    // Network error, DNS failure, or timeout — a real, expected outcome to
+    // record (and, below, retry), not a bug in this function.
+    responseStatus = null;
+    succeeded = false;
+  }
+  return { succeeded, responseStatus, durationMs: Date.now() - startedAt };
+}
+
+/**
+ * Fires a REAL event at every org webhook subscribed to it — signs and POSTs
+ * a genuine payload (not the `/test` endpoint's sample), and logs a real
+ * `WebhookDelivery` row per webhook. Called from the actual moments these
+ * events happen (session start/stop, report ready, member invited — see the
+ * call sites in `src/app/api/v1/**`), not on a timer or a fabricated trigger.
+ * Failures are picked up by `sweepFailedWebhookDeliveries`'s retry loop, so
+ * this function never throws on a downstream delivery failure — only a
+ * caller bug (bad `orgId`/Prisma outage) would surface as a thrown error.
+ */
+export async function dispatchWebhookEvent(
+  orgId: string,
+  event: WebhookEvent,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  const prisma = await getPrisma();
+  const prismaEvent = toPrismaEventType(event);
+  const webhooks = await prisma.webhook.findMany({
+    where: { orgId, status: "active", events: { has: prismaEvent } },
+  });
+  if (webhooks.length === 0) return;
+
+  const fullPayload = { event, ...payload, occurredAt: new Date().toISOString() };
+
+  await Promise.all(
+    webhooks.map(async (webhook) => {
+      const result = await performDelivery(webhook, event, fullPayload);
+      await prisma.webhookDelivery.create({
+        data: {
+          webhookId: webhook.id,
+          event: prismaEvent,
+          payload: fullPayload as Prisma.InputJsonValue,
+          attempt: 1,
+          status: result.succeeded ? "success" : "failed",
+          responseStatus: result.responseStatus,
+          durationMs: result.durationMs,
+        },
+      });
+    }),
+  );
+}
+
+/** 1m, 5m, 30m — after this many total attempts (including the first), a delivery stops retrying. */
+const RETRY_BACKOFF_MS = [60_000, 5 * 60_000, 30 * 60_000];
+const MAX_DELIVERY_ATTEMPTS = RETRY_BACKOFF_MS.length + 1;
+
+/**
+ * Retries failed webhook deliveries with backoff. There's no real job queue
+ * (BullMQ+Redis) available yet — see INCOMPLETE.md — so this is a best-effort,
+ * at-least-once in-process sweep (called on an interval from
+ * `src/instrumentation.ts`), not a durable queue. It updates the failed
+ * delivery row IN PLACE on each retry (reusing `createdAt` as "time of most
+ * recent attempt" — there's no separate `lastAttemptAt` column) rather than
+ * inserting a new row per attempt, which keeps this schema-change-free but
+ * means the delivery log shows only the latest attempt's outcome, not full
+ * per-attempt history. Under PM2's multi-worker cluster mode, two workers
+ * could in principle race on the same row and both retry it — a known,
+ * accepted, small risk of a duplicate delivery, not a correctness bug that
+ * blocks shipping this without a real distributed lock.
+ */
+export async function sweepFailedWebhookDeliveries(): Promise<void> {
+  const prisma = await getPrisma();
+  const now = Date.now();
+
+  const candidates = await prisma.webhookDelivery.findMany({
+    where: { status: "failed", attempt: { lt: MAX_DELIVERY_ATTEMPTS } },
+    include: { webhook: true },
+    orderBy: { createdAt: "asc" },
+    take: 50,
+  });
+
+  for (const delivery of candidates) {
+    if (delivery.webhook.status !== "active") continue;
+
+    const backoffMs = RETRY_BACKOFF_MS[delivery.attempt - 1] ?? RETRY_BACKOFF_MS.at(-1)!;
+    const dueAt = delivery.createdAt.getTime() + backoffMs;
+    if (now < dueAt) continue;
+
+    const result = await performDelivery(
+      delivery.webhook,
+      toApiEventType(delivery.event),
+      delivery.payload as Record<string, unknown>,
+    );
+
+    await prisma.webhookDelivery.update({
+      where: { id: delivery.id },
+      data: {
+        attempt: delivery.attempt + 1,
+        status: result.succeeded ? "success" : "failed",
+        responseStatus: result.responseStatus,
+        durationMs: result.durationMs,
+        createdAt: new Date(),
+      },
+    });
+  }
 }

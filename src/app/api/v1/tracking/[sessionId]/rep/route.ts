@@ -14,7 +14,7 @@ import {
 
 export const dynamic = "force-dynamic";
 
-const repSchema = z.object({
+export const repSchema = z.object({
   formScore: z.number().min(0).max(100).optional(),
 });
 

@@ -1,8 +1,20 @@
 import type { OpenApiDocument } from "@/server/openapi/document";
+import { paramsFromZodObject, schemaRef } from "@/server/openapi/schema-registry";
+import {
+  createSchema as webhookCreateSchema,
+  listQuerySchema as webhooksListQuerySchema,
+} from "@/app/api/v1/webhooks/route";
+import { patchSchema as webhookPatchSchema } from "@/app/api/v1/webhooks/[id]/route";
+import { testSchema as webhookTestSchema } from "@/app/api/v1/webhooks/[id]/test/route";
+import { listQuerySchema as deliveriesListQuerySchema } from "@/app/api/v1/webhooks/[id]/deliveries/route";
 
 /**
  * OpenAPI path definitions for the Webhooks domain.
  * See src/app/api/v1/webhooks/** for the corresponding route handlers.
+ * Request-side schemas (`requestBody`, query `parameters`) are derived from
+ * the actual Zod validators via `schemaRef`/`paramsFromZodObject`, so they
+ * can't drift from what the route really accepts. Response-body schemas
+ * below (e.g. `webhookSchema`, `webhookDeliverySchema`) remain hand-typed.
  */
 
 const security = [{ bearerAuth: [] }, { apiKeyAuth: [] }];
@@ -59,26 +71,13 @@ const idParam = {
   description: "Webhook ID",
 };
 
-const cursorParam = {
-  name: "cursor",
-  in: "query" as const,
-  required: false,
-  schema: { type: "string" },
-};
-const limitParam = {
-  name: "limit",
-  in: "query" as const,
-  required: false,
-  schema: { type: "integer", minimum: 1, maximum: 100 },
-};
-
 export const webhooksPaths: OpenApiDocument["paths"] = {
   "/webhooks": {
     get: {
       tags: ["Webhooks"],
       summary: "List webhooks for the caller's organization",
       security,
-      parameters: [cursorParam, limitParam],
+      parameters: paramsFromZodObject(webhooksListQuerySchema, "query"),
       responses: {
         "200": {
           description: "A page of webhooks (secrets omitted).",
@@ -104,16 +103,7 @@ export const webhooksPaths: OpenApiDocument["paths"] = {
       requestBody: {
         required: true,
         content: {
-          "application/json": {
-            schema: {
-              type: "object",
-              required: ["url", "events"],
-              properties: {
-                url: { type: "string", format: "uri" },
-                events: { type: "array", items: webhookEventSchema, minItems: 1 },
-              },
-            },
-          },
+          "application/json": { schema: schemaRef("WebhookCreateRequest", webhookCreateSchema) },
         },
       },
       responses: {
@@ -157,16 +147,7 @@ export const webhooksPaths: OpenApiDocument["paths"] = {
       requestBody: {
         required: false,
         content: {
-          "application/json": {
-            schema: {
-              type: "object",
-              properties: {
-                url: { type: "string", format: "uri" },
-                events: { type: "array", items: webhookEventSchema, minItems: 1 },
-                status: { type: "string", enum: ["active", "disabled"] },
-              },
-            },
-          },
+          "application/json": { schema: schemaRef("WebhookPatchRequest", webhookPatchSchema) },
         },
       },
       responses: {
@@ -216,7 +197,7 @@ export const webhooksPaths: OpenApiDocument["paths"] = {
       tags: ["Webhooks"],
       summary: "List delivery attempts for a webhook, newest first",
       security,
-      parameters: [idParam, cursorParam, limitParam],
+      parameters: [idParam, ...paramsFromZodObject(deliveriesListQuerySchema, "query")],
       responses: {
         "200": {
           description: "A page of webhook deliveries.",
@@ -247,9 +228,7 @@ export const webhooksPaths: OpenApiDocument["paths"] = {
       requestBody: {
         required: false,
         content: {
-          "application/json": {
-            schema: { type: "object", properties: { event: webhookEventSchema } },
-          },
+          "application/json": { schema: schemaRef("WebhookTestRequest", webhookTestSchema) },
         },
       },
       responses: {

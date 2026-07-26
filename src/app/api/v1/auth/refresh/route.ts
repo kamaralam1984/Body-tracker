@@ -6,7 +6,7 @@ import { refreshSession } from "@/server/services/auth-service";
 
 export const dynamic = "force-dynamic";
 
-const refreshSchema = z.object({
+export const refreshSchema = z.object({
   refreshToken: z.string().min(1),
 });
 

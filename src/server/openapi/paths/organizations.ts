@@ -1,4 +1,15 @@
 import type { OpenApiDocument } from "@/server/openapi/document";
+import { paramsFromZodObject, schemaRef } from "@/server/openapi/schema-registry";
+import { patchSchema as orgPatchSchema } from "@/app/api/v1/organizations/[id]/route";
+import {
+  listQuerySchema as teamsListQuerySchema,
+  createSchema as teamCreateSchema,
+} from "@/app/api/v1/organizations/[id]/teams/route";
+import {
+  listQuerySchema as membersListQuerySchema,
+  createSchema as memberCreateSchema,
+} from "@/app/api/v1/organizations/[id]/members/route";
+import { patchSchema as memberPatchSchema } from "@/app/api/v1/organizations/[id]/members/[userId]/route";
 
 const security = [{ bearerAuth: [] }, { apiKeyAuth: [] }];
 
@@ -25,22 +36,6 @@ const userIdParam = {
   required: true,
   description: "Member (user) id",
   schema: { type: "string" },
-};
-
-const cursorParam = {
-  name: "cursor",
-  in: "query" as const,
-  required: false,
-  description: "Opaque pagination cursor",
-  schema: { type: "string" },
-};
-
-const limitParam = {
-  name: "limit",
-  in: "query" as const,
-  required: false,
-  description: "Page size (1-100, default 20)",
-  schema: { type: "integer", minimum: 1, maximum: 100, default: 20 },
 };
 
 const organizationSchema = {
@@ -116,15 +111,7 @@ export const organizationsPaths: OpenApiDocument["paths"] = {
       requestBody: {
         required: true,
         content: {
-          "application/json": {
-            schema: {
-              type: "object",
-              properties: {
-                name: { type: "string", minLength: 1 },
-                plan: { type: "string", enum: ["starter", "growth", "enterprise"] },
-              },
-            },
-          },
+          "application/json": { schema: schemaRef("OrganizationPatchRequest", orgPatchSchema) },
         },
       },
       responses: {
@@ -145,7 +132,7 @@ export const organizationsPaths: OpenApiDocument["paths"] = {
       tags: ["Organizations"],
       summary: "List teams in an organization",
       security,
-      parameters: [orgIdParam, cursorParam, limitParam],
+      parameters: [orgIdParam, ...paramsFromZodObject(teamsListQuerySchema, "query")],
       responses: {
         "200": {
           description: "Paginated list of teams",
@@ -169,13 +156,7 @@ export const organizationsPaths: OpenApiDocument["paths"] = {
       requestBody: {
         required: true,
         content: {
-          "application/json": {
-            schema: {
-              type: "object",
-              required: ["name"],
-              properties: { name: { type: "string", minLength: 1 } },
-            },
-          },
+          "application/json": { schema: schemaRef("TeamCreateRequest", teamCreateSchema) },
         },
       },
       responses: {
@@ -194,7 +175,7 @@ export const organizationsPaths: OpenApiDocument["paths"] = {
       tags: ["Organizations"],
       summary: "List members of an organization",
       security,
-      parameters: [orgIdParam, cursorParam, limitParam],
+      parameters: [orgIdParam, ...paramsFromZodObject(membersListQuerySchema, "query")],
       responses: {
         "200": {
           description: "Paginated list of members (passwordHash omitted)",
@@ -218,18 +199,7 @@ export const organizationsPaths: OpenApiDocument["paths"] = {
       requestBody: {
         required: true,
         content: {
-          "application/json": {
-            schema: {
-              type: "object",
-              required: ["email", "name", "role"],
-              properties: {
-                email: { type: "string", format: "email" },
-                name: { type: "string", minLength: 1 },
-                role: { type: "string", enum: ["owner", "admin", "manager", "member", "viewer"] },
-                teamId: { type: ["string", "null"] },
-              },
-            },
-          },
+          "application/json": { schema: schemaRef("MemberCreateRequest", memberCreateSchema) },
         },
       },
       responses: {
@@ -252,16 +222,7 @@ export const organizationsPaths: OpenApiDocument["paths"] = {
       requestBody: {
         required: true,
         content: {
-          "application/json": {
-            schema: {
-              type: "object",
-              properties: {
-                role: { type: "string", enum: ["owner", "admin", "manager", "member", "viewer"] },
-                teamId: { type: ["string", "null"] },
-                status: { type: "string", enum: ["active", "invited", "suspended"] },
-              },
-            },
-          },
+          "application/json": { schema: schemaRef("MemberPatchRequest", memberPatchSchema) },
         },
       },
       responses: {

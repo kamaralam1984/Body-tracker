@@ -1,4 +1,8 @@
 import type { OpenApiDocument } from "@/server/openapi/document";
+import { paramsFromZodObject } from "@/server/openapi/schema-registry";
+import { querySchema as summaryQuerySchema } from "@/app/api/v1/analytics/summary/route";
+import { querySchema as dailyQuerySchema } from "@/app/api/v1/analytics/daily/route";
+import { querySchema as insightsQuerySchema } from "@/app/api/v1/analytics/insights/route";
 
 const security = [{ bearerAuth: [] }, { apiKeyAuth: [] }];
 
@@ -9,46 +13,6 @@ const errorResponse = {
       schema: { $ref: "#/components/schemas/Error" },
     },
   },
-};
-
-const fromParam = {
-  name: "from",
-  in: "query" as const,
-  required: false,
-  description: "Start date (YYYY-MM-DD, inclusive). Defaults to 7 days ago.",
-  schema: { type: "string", format: "date" },
-};
-
-const toParam = {
-  name: "to",
-  in: "query" as const,
-  required: false,
-  description: "End date (YYYY-MM-DD, inclusive). Defaults to today.",
-  schema: { type: "string", format: "date" },
-};
-
-const userIdQueryParam = {
-  name: "userId",
-  in: "query" as const,
-  required: false,
-  description: "Restrict to a single user id",
-  schema: { type: "string" },
-};
-
-const cursorParam = {
-  name: "cursor",
-  in: "query" as const,
-  required: false,
-  description: "Opaque pagination cursor",
-  schema: { type: "string" },
-};
-
-const limitParam = {
-  name: "limit",
-  in: "query" as const,
-  required: false,
-  description: "Page size (1-100, default 20)",
-  schema: { type: "integer", minimum: 1, maximum: 100, default: 20 },
 };
 
 const snapshotSchema = {
@@ -100,7 +64,11 @@ export const analyticsPaths: OpenApiDocument["paths"] = {
       tags: ["Analytics"],
       summary: "Aggregated totals and averages over a date range",
       security,
-      parameters: [fromParam, toParam, userIdQueryParam],
+      parameters: paramsFromZodObject(summaryQuerySchema, "query", {
+        from: "Start date (YYYY-MM-DD, inclusive). Defaults to 7 days ago.",
+        to: "End date (YYYY-MM-DD, inclusive). Defaults to today.",
+        userId: "Restrict to a single user id",
+      }),
       responses: {
         "200": {
           description: "Totals and averages for the requested range",
@@ -117,7 +85,11 @@ export const analyticsPaths: OpenApiDocument["paths"] = {
       tags: ["Analytics"],
       summary: "List raw daily analytics snapshots",
       security,
-      parameters: [userIdQueryParam, cursorParam, limitParam],
+      parameters: paramsFromZodObject(dailyQuerySchema, "query", {
+        userId: "Restrict to a single user id",
+        cursor: "Opaque pagination cursor",
+        limit: "Page size (1-100, default 20)",
+      }),
       responses: {
         "200": {
           description: "Paginated list of daily snapshots, sorted by date descending",
@@ -139,7 +111,9 @@ export const analyticsPaths: OpenApiDocument["paths"] = {
       tags: ["Analytics"],
       summary: "Deterministic, rule-based insights derived from recent snapshot trends",
       security,
-      parameters: [userIdQueryParam],
+      parameters: paramsFromZodObject(insightsQuerySchema, "query", {
+        userId: "Restrict to a single user id",
+      }),
       responses: {
         "200": {
           description:

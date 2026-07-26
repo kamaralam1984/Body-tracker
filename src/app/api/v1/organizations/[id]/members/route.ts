@@ -7,20 +7,27 @@ import { resolvePrincipal, requireScope, rateLimitResponseHeaders } from "@/serv
 import { ok, errorResponse } from "@/server/http/respond";
 import { parseJsonBody, parseQuery } from "@/server/http/validate";
 import { paginate } from "@/server/http/pagination";
+import { parseSort, searchWhere } from "@/server/http/sort";
 import { forbidden, conflict } from "@/server/http/errors";
 import { writeAudit } from "@/server/http/audit";
 import { sanitizeUser } from "@/server/services/organizations-service";
+import { dispatchWebhookEvent } from "@/server/services/webhooks-service";
 
 export const dynamic = "force-dynamic";
 
-const listQuerySchema = z.object({
+const SORTABLE_FIELDS = ["name", "email", "role", "status", "createdAt"] as const;
+const SEARCHABLE_FIELDS = ["name", "email"] as const;
+
+export const listQuerySchema = z.object({
   cursor: z.string().nullable().optional(),
   limit: z.coerce.number().int().min(1).max(100).optional().default(20),
+  sort: z.string().optional(),
+  search: z.string().min(1).optional(),
 });
 
 const roleEnum = z.enum(["owner", "admin", "manager", "member", "viewer"]);
 
-const createSchema = z.object({
+export const createSchema = z.object({
   email: z.string().email(),
   name: z.string().min(1),
   role: roleEnum,
@@ -36,10 +43,11 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
     const query = parseQuery(request.nextUrl.searchParams, listQuerySchema);
     const prisma = await getPrisma();
+    const orderBy = parseSort(query.sort, SORTABLE_FIELDS);
     const members = (
       await prisma.user.findMany({
-        where: { orgId: id },
-        orderBy: { createdAt: "asc" },
+        where: { orgId: id, ...searchWhere(query.search, SEARCHABLE_FIELDS) },
+        orderBy: orderBy.length > 0 ? orderBy : { createdAt: "asc" },
       })
     ).map(sanitizeUser);
 
@@ -81,6 +89,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         status: "invited",
       },
     });
+
+    dispatchWebhookEvent(id, "user.invited", {
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+    }).catch((error) => console.error("[webhooks] dispatch failed for user.invited", error));
 
     writeAudit({
       orgId: id,

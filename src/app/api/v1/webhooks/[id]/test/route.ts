@@ -24,7 +24,7 @@ const webhookEventEnum = z.enum([
   "user.invited",
 ]);
 
-const testSchema = z.object({
+export const testSchema = z.object({
   event: webhookEventEnum.optional(),
 });
 

@@ -6,7 +6,7 @@ import { logout } from "@/server/services/auth-service";
 
 export const dynamic = "force-dynamic";
 
-const logoutSchema = z.object({
+export const logoutSchema = z.object({
   refreshToken: z.string().min(1),
 });
 

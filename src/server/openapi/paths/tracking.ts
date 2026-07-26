@@ -1,8 +1,15 @@
 import type { OpenApiDocument } from "@/server/openapi/document";
+import { schemaRef } from "@/server/openapi/schema-registry";
+import { repSchema as trackingRepSchema } from "@/app/api/v1/tracking/[sessionId]/rep/route";
+import { metricsSchema as trackingMetricsSchema } from "@/app/api/v1/tracking/[sessionId]/metrics/route";
+import { exerciseSetSchema as exerciseSetCreateSchema } from "@/app/api/v1/tracking/[sessionId]/exercise-set/route";
 
 /**
  * OpenAPI path fragment for the Tracking domain (`/api/v1/tracking/{sessionId}/*`).
- * Merged into the platform-wide document via `mergePaths`.
+ * Merged into the platform-wide document via `mergePaths`. Request-side
+ * schemas (`requestBody`) are derived from the actual Zod validators in
+ * `src/app/api/v1/tracking/[sessionId]/**` via `schemaRef`, so they can't
+ * drift from what the route really accepts.
  */
 
 const trackingSessionSchema = {
@@ -116,15 +123,74 @@ export const trackingPaths: OpenApiDocument["paths"] = {
       requestBody: {
         required: false,
         content: {
-          "application/json": {
-            schema: {
-              type: "object",
-              properties: { formScore: { type: "number", minimum: 0, maximum: 100 } },
-            },
-          },
+          "application/json": { schema: schemaRef("TrackingRepRequest", trackingRepSchema) },
         },
       },
       responses: sessionResponse("The session with the rep applied."),
+    },
+  },
+  "/tracking/{sessionId}/metrics": {
+    post: {
+      tags: ["Tracking"],
+      summary: "Ingest one tracking window of face/pose aggregate metrics",
+      description:
+        "Ingests one ~10s window of tallied face-tracking aggregates from the browser — never raw " +
+        "landmarks, just counts/sums the client accumulated. Attention/posture/fatigue scores are computed " +
+        "here, server-side.",
+      security,
+      parameters: [sessionIdParam],
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": {
+            schema: schemaRef("TrackingMetricsRequest", trackingMetricsSchema),
+          },
+        },
+      },
+      responses: {
+        "201": {
+          description: "The created tracking metric sample.",
+          content: {
+            "application/json": {
+              schema: { type: "object", properties: { data: { type: "object" } } },
+            },
+          },
+        },
+        "401": errorResponse,
+        "403": errorResponse,
+        "404": errorResponse,
+        "409": errorResponse,
+      },
+    },
+  },
+  "/tracking/{sessionId}/exercise-set": {
+    post: {
+      tags: ["Tracking"],
+      summary: "Record a completed exercise set (auto-detected rep burst)",
+      security,
+      parameters: [sessionIdParam],
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": {
+            schema: schemaRef("ExerciseSetCreateRequest", exerciseSetCreateSchema),
+          },
+        },
+      },
+      responses: {
+        "201": {
+          description: "The created exercise set.",
+          content: {
+            "application/json": {
+              schema: { type: "object", properties: { data: { type: "object" } } },
+            },
+          },
+        },
+        "401": errorResponse,
+        "403": errorResponse,
+        "404": errorResponse,
+        "409": errorResponse,
+      },
     },
   },
   "/tracking/{sessionId}/status": {

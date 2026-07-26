@@ -24,7 +24,7 @@ export const dynamic = "force-dynamic";
  * never raw landmarks, just counts/sums the client accumulated. Scores are
  * computed here, server-side, via `intelligence-metrics-service.ts`.
  */
-const metricsSchema = z.object({
+export const metricsSchema = z.object({
   windowStart: z.iso.datetime(),
   windowEnd: z.iso.datetime(),
   frameCount: z.number().int().min(1),

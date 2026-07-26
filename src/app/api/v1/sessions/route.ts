@@ -10,14 +10,16 @@ import { listOrgSessions } from "@/server/services/sessions-service";
 
 export const dynamic = "force-dynamic";
 
-const listQuerySchema = z.object({
+export const listQuerySchema = z.object({
   status: z.enum(["idle", "active", "paused", "completed"]).optional(),
   activityKind: z.string().min(1).optional(),
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
+  sort: z.string().optional(),
+  search: z.string().min(1).optional(),
 });
 
-const createSchema = z.object({
+export const createSchema = z.object({
   title: z.string().min(1),
   activityKind: z.string().min(1),
 });
@@ -31,6 +33,8 @@ export async function GET(request: NextRequest) {
     const sessions = await listOrgSessions(principal.orgId, {
       status: query.status,
       activityKind: query.activityKind,
+      sort: query.sort,
+      search: query.search,
     });
     const page = paginate(sessions, query.cursor, query.limit ?? 20);
 
