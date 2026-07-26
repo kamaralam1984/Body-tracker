@@ -1,22 +1,24 @@
 "use client";
 
 /**
- * Standalone fullscreen toggle for an arbitrary target element (typically the
- * `CameraCard` root, via a ref passed down from the page). Uses the native
- * Fullscreen API directly rather than any camera state — it has no opinion
- * about `useCameraContext()`.
+ * Fullscreen toggle button — purely presentational, driven by
+ * `use-fullscreen.ts` (owned by the page, since `CameraTopBar` and the page
+ * itself both need to agree on the same `isFullscreen` value). Always
+ * renders: the CSS-only fallback in the hook means there's no browser where
+ * this control has nothing to do.
  *
- * <FullscreenButton targetRef={cardRef} />
+ * <FullscreenButton isFullscreen={isFullscreen} onToggle={toggle} />
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Maximize, Minimize } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 interface FullscreenButtonProps {
-  targetRef: React.RefObject<HTMLElement | null>;
+  isFullscreen: boolean;
+  onToggle: () => void;
   className?: string;
 }
 
@@ -26,47 +28,15 @@ function isTypingTarget(el: Element | null): boolean {
   return tag === "INPUT" || tag === "TEXTAREA" || (el as HTMLElement).isContentEditable;
 }
 
-export function FullscreenButton({ targetRef, className }: FullscreenButtonProps) {
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  // Starts false on both server and client to avoid a hydration mismatch,
-  // then flips true on mount if the browser actually supports the API.
-  const [isAvailable, setIsAvailable] = useState(false);
-
+export function FullscreenButton({ isFullscreen, onToggle, className }: FullscreenButtonProps) {
   useEffect(() => {
-    // Runs once on mount only, to report actual browser support without
-    // risking a server/client hydration mismatch (see the initial value above).
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setIsAvailable(typeof document !== "undefined" && document.fullscreenEnabled !== false);
-
-    const handleChange = () => setIsFullscreen(document.fullscreenElement === targetRef.current);
-    document.addEventListener("fullscreenchange", handleChange);
-    return () => document.removeEventListener("fullscreenchange", handleChange);
-  }, [targetRef]);
-
-  const toggleFullscreen = useCallback(() => {
-    if (document.fullscreenElement) {
-      void document.exitFullscreen();
-    } else {
-      void targetRef.current?.requestFullscreen();
-    }
-  }, [targetRef]);
-
-  // `F` toggles fullscreen; `Escape` already exits it natively via the
-  // browser's own Fullscreen API, so there's nothing to wire for that.
-  useEffect(() => {
-    if (!isAvailable) return;
     function handleKeyDown(event: KeyboardEvent) {
       if (isTypingTarget(document.activeElement)) return;
-      if (event.code === "KeyF") toggleFullscreen();
+      if (event.code === "KeyF") onToggle();
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isAvailable, toggleFullscreen]);
-
-  // Fullscreen API unsupported (e.g. some iOS browsers): render nothing
-  // rather than a permanently-disabled button, since there's no path to
-  // ever enable it for the user.
-  if (!isAvailable) return null;
+  }, [onToggle]);
 
   const label = isFullscreen ? "Exit fullscreen" : "Enter fullscreen";
 
@@ -78,7 +48,7 @@ export function FullscreenButton({ targetRef, className }: FullscreenButtonProps
         size="icon"
         aria-pressed={isFullscreen}
         aria-label={label}
-        onClick={toggleFullscreen}
+        onClick={onToggle}
         className={cn(
           "bg-muted text-muted-foreground hover:bg-muted/80 size-11 rounded-full sm:size-12",
           className,

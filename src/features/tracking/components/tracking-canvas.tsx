@@ -10,17 +10,9 @@
 import { useEffect, useRef, type RefObject } from "react";
 import { cn } from "@/lib/utils";
 import { useTrackingContext } from "../context/tracking-provider";
-import { drawFace } from "../lib/render/draw-face";
-import { drawHand } from "../lib/render/draw-hand";
-import { drawPose } from "../lib/render/draw-pose";
 import { extrapolateTrackingFrame } from "../lib/render/extrapolate-frame";
 import { resolveTrackingColors, type TrackingColors } from "../lib/render/resolve-tracking-colors";
-import {
-  drawWireframe,
-  drawLandmarkIds,
-  drawBoundingBoxes,
-  drawConfidenceOverlay,
-} from "../lib/render/render-modes";
+import { drawTrackingOverlay } from "../lib/render/render-modes";
 import type { TrackingFrame } from "../types";
 
 // Bounds on how far we'll predict past the newest detected frame — see
@@ -116,27 +108,7 @@ export function TrackingCanvas({ containerRef, className }: TrackingCanvasProps)
         const elapsedSinceDetection = now - currDetectionArrivedAt;
         const alpha = Math.min(elapsedSinceDetection, detectionIntervalMs) / detectionIntervalMs;
         const frame = extrapolateTrackingFrame(prevDetectionFrame, currDetectionFrame, alpha);
-
-        switch (renderMode) {
-          case "wireframe":
-            drawWireframe(ctx!, frame, cssWidth, cssHeight, colors);
-            break;
-          case "landmark-ids":
-            drawLandmarkIds(ctx!, frame, cssWidth, cssHeight, colors);
-            break;
-          case "bounding-box":
-            drawBoundingBoxes(ctx!, frame, cssWidth, cssHeight, colors);
-            break;
-          case "confidence":
-            drawConfidenceOverlay(ctx!, frame, cssWidth, cssHeight, colors);
-            break;
-          case "skeleton":
-          default:
-            if (frame.face) drawFace(ctx!, frame.face, cssWidth, cssHeight, colors);
-            if (frame.hands.length > 0) drawHand(ctx!, frame.hands, cssWidth, cssHeight, colors);
-            if (frame.pose) drawPose(ctx!, frame.pose, cssWidth, cssHeight, colors);
-            break;
-        }
+        drawTrackingOverlay(ctx!, frame, renderMode, cssWidth, cssHeight, colors);
       }
 
       // Written directly to a ref (not React state) — this runs every

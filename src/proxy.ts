@@ -20,9 +20,14 @@ export function proxy() {
   response.headers.set("X-Content-Type-Options", "nosniff");
   response.headers.set("X-Frame-Options", "DENY");
   response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  // microphone=(self) — was `()` (blocked entirely, even on this app's own
+  // origin), from before session recording supported an optional mic
+  // track. That silently broke every recording's audio: `getUserMedia({
+  // audio: true })` throws a real "Permissions policy violation" the app
+  // could only fall back from, never actually fix, from inside the page.
   response.headers.set(
     "Permissions-Policy",
-    "camera=(self), microphone=(), geolocation=(), interest-cohort=()",
+    "camera=(self), microphone=(self), geolocation=(), interest-cohort=()",
   );
   response.headers.set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload");
   response.headers.set("X-Request-Id", crypto.randomUUID());

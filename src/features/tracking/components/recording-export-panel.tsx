@@ -51,8 +51,8 @@ interface LandmarkSample {
 }
 
 export function RecordingExportPanel({ className }: { className?: string }) {
-  const { stream, status } = useCameraContext();
-  const { live, frameRef, recording } = useTrackingContext();
+  const { status, videoRef, settings } = useCameraContext();
+  const { live, frameRef, recording, renderMode } = useTrackingContext();
   const [landmarkLoggingEnabled, setLandmarkLoggingEnabled] = useState(false);
   const samplesRef = useRef<LandmarkSample[]>([]);
   const [sampleCount, setSampleCount] = useState(0);
@@ -93,8 +93,13 @@ export function RecordingExportPanel({ className }: { className?: string }) {
   function handleToggleRecording() {
     if (recording.isRecording) {
       recording.stopRecording();
-    } else if (stream) {
-      void recording.startRecording(stream);
+    } else if (videoRef.current) {
+      void recording.startRecording({
+        videoEl: videoRef.current,
+        frameRef,
+        renderMode,
+        mirrored: settings.mirrored,
+      });
     }
   }
 
@@ -115,7 +120,7 @@ export function RecordingExportPanel({ className }: { className?: string }) {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canRecord, recording.isRecording, stream]);
+  }, [canRecord, recording.isRecording, renderMode, settings.mirrored]);
 
   function handleExportSessionJson() {
     downloadJson(`camera-session-${Date.now()}.json`, {

@@ -10,6 +10,9 @@
  * fall back to a flat tint rather than a fabricated gradient.
  */
 
+import { drawFace } from "./draw-face";
+import { drawHand } from "./draw-hand";
+import { drawPose } from "./draw-pose";
 import type { TrackingFrame, TrackingPoint } from "../../types";
 import type { TrackingColors } from "./resolve-tracking-colors";
 
@@ -181,5 +184,44 @@ export function drawConfidenceOverlay(
       ctx.arc(x, y, DOT_RADIUS, 0, Math.PI * 2);
       ctx.fill();
     }
+  }
+}
+
+/**
+ * The one place that dispatches "which render mode draws what" — shared by
+ * the live on-screen `TrackingCanvas` and the recording composite canvas
+ * (`use-recording-canvas.ts`) so a recorded video's overlay always matches
+ * exactly what was on screen, instead of two separately-maintained copies
+ * of this switch statement drifting apart.
+ */
+export function drawTrackingOverlay(
+  ctx: CanvasRenderingContext2D,
+  frame: TrackingFrame,
+  renderMode: RenderMode,
+  width: number,
+  height: number,
+  colors: TrackingColors,
+): void {
+  switch (renderMode) {
+    case "camera-only":
+      break;
+    case "wireframe":
+      drawWireframe(ctx, frame, width, height, colors);
+      break;
+    case "landmark-ids":
+      drawLandmarkIds(ctx, frame, width, height, colors);
+      break;
+    case "bounding-box":
+      drawBoundingBoxes(ctx, frame, width, height, colors);
+      break;
+    case "confidence":
+      drawConfidenceOverlay(ctx, frame, width, height, colors);
+      break;
+    case "skeleton":
+    default:
+      if (frame.face) drawFace(ctx, frame.face, width, height, colors);
+      if (frame.hands.length > 0) drawHand(ctx, frame.hands, width, height, colors);
+      if (frame.pose) drawPose(ctx, frame.pose, width, height, colors);
+      break;
   }
 }

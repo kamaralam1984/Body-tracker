@@ -27,6 +27,7 @@ import {
   PermissionRequiredBanner,
   StatusBadge,
   useCameraContext,
+  useFullscreen,
 } from "@/features/camera";
 import {
   DeveloperModePanel,
@@ -85,16 +86,23 @@ function CameraPageContent() {
   // The card's `aspect-video` sizing only ever produces a 16:9 box, so
   // fullscreening the wrapper (which the Fullscreen API stretches to fill
   // the viewport) still leaves a small 16:9 preview floating in a sea of
-  // black on tall mobile screens. Track fullscreen state so the card can
-  // drop its aspect ratio and fill the wrapper's full height instead.
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  // black on tall mobile screens. `isFullscreen` drives the card dropping
+  // its aspect ratio to fill the wrapper's full height instead — see
+  // use-fullscreen.ts for why this isn't just `document.fullscreenElement`
+  // (some browsers, notably iOS Safari, don't support the native API for a
+  // non-`<video>` element at all).
+  const { isFullscreen, toggle: toggleFullscreen } = useFullscreen(fullscreenTargetRef);
+  const { setMirrored } = tracking;
 
+  // The tracking overlay's own mirrored flag (`tracking.config.mirrored`)
+  // otherwise never learns about the camera's mirror toggle — it only ever
+  // took its default from `DEFAULT_TRACKING_CONFIG`. Without this, flipping
+  // "Mirror preview" in Settings visually desyncs the skeleton overlay from
+  // the video underneath it (and would do the same to a recording, since
+  // the composite canvas trusts this value too).
   useEffect(() => {
-    const handleChange = () =>
-      setIsFullscreen(document.fullscreenElement === fullscreenTargetRef.current);
-    document.addEventListener("fullscreenchange", handleChange);
-    return () => document.removeEventListener("fullscreenchange", handleChange);
-  }, []);
+    setMirrored(settings.mirrored);
+  }, [settings.mirrored, setMirrored]);
 
   const cardAction = (() => {
     switch (status) {
@@ -176,7 +184,8 @@ function CameraPageContent() {
               aiStatusLabel={aiStatusLabel(tracking.status)}
               processingTimeMs={tracking.perf.processingTimeMs}
               videoRef={videoRef}
-              fullscreenTargetRef={fullscreenTargetRef}
+              isFullscreen={isFullscreen}
+              onToggleFullscreen={toggleFullscreen}
               onSettingsClick={() => setSettingsOpen(true)}
             />
             <FloatingControlDock containerRef={fullscreenTargetRef} onScreenshot={setScreenshot} />

@@ -8,8 +8,9 @@
  * privacy narrative — recording is purely a local save, user-initiated,
  * same trust boundary as the existing screenshot feature.
  *
- * Optional microphone track — off by default, since nothing else in this
- * app uses audio; only meaningful here, for narrating a recorded clip. Real
+ * Optional microphone track — on by default (most people recording a
+ * session want their voice in it), toggleable before starting since
+ * nothing else in this app uses audio. Real
  * `noiseSuppression`/`echoCancellation`/`autoGainControl` constraints (all
  * standard `MediaTrackConstraints` fields) apply once the mic is requested.
  *
@@ -19,11 +20,17 @@
  * guaranteed cross-browser (Chrome/Firefox reliably produce WebM;
  * Safari's `MediaRecorder` often defaults to MP4/H.264 on its own) — this
  * stays WebM-first rather than pretending otherwise.
+ *
+ * Records a composited canvas (`use-recording-canvas.ts`), not the raw
+ * camera `MediaStream` — so the tracking overlay actually ends up in the
+ * downloaded file, matching whatever's on screen, instead of silently
+ * being a DOM-only layer that never reached the recording.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { downloadFile } from "@/lib/download-file";
 import { fixWebmDuration } from "@/lib/fix-webm-duration";
+import { useRecordingCanvas, type CompositeRecordingSource } from "./use-recording-canvas";
 
 export interface AudioDeviceInfo {
   deviceId: string;
@@ -61,7 +68,7 @@ export interface UseSessionRecordingResult {
   audioAdjustments: AudioAdjustments;
   setAudioAdjustments: (adjustments: Partial<AudioAdjustments>) => void;
   refreshAudioDevices: () => Promise<void>;
-  startRecording: (videoStream: MediaStream) => Promise<void>;
+  startRecording: (source: CompositeRecordingSource) => Promise<void>;
   pauseRecording: () => void;
   resumeRecording: () => void;
   stopRecording: () => void;
@@ -84,7 +91,11 @@ function pickSupportedMimeType(): string {
 export function useSessionRecording(): UseSessionRecordingResult {
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
-  const [micEnabled, setMicEnabled] = useState(false);
+  // Defaults on — most people recording a session want their voice in it,
+  // and it's just as easy to toggle off before starting as it would be to
+  // opt in. The mic permission prompt only actually fires once recording
+  // starts, same as before.
+  const [micEnabled, setMicEnabled] = useState(true);
   const [audioDevices, setAudioDevices] = useState<AudioDeviceInfo[]>([]);
   const [selectedMicId, setSelectedMicId] = useState<string | undefined>(undefined);
   const [audioAdjustments, setAudioAdjustmentsState] =
@@ -111,6 +122,7 @@ export function useSessionRecording(): UseSessionRecordingResult {
   // fix-webm-duration.ts) using our own paused-time-excluded elapsed time
   // rather than re-deriving it from the container's Cluster timecodes.
   const finalElapsedMsRef = useRef(0);
+  const { start: startCompositeCanvas, stop: stopCompositeCanvas } = useRecordingCanvas();
 
   const setAudioAdjustments = useCallback((adjustments: Partial<AudioAdjustments>) => {
     setAudioAdjustmentsState((prev) => ({ ...prev, ...adjustments }));
@@ -152,9 +164,15 @@ export function useSessionRecording(): UseSessionRecordingResult {
   }, []);
 
   const startRecording = useCallback(
-    async (videoStream: MediaStream) => {
+    async (source: CompositeRecordingSource) => {
       setError(null);
-      let combined = videoStream;
+
+      const canvasStream = startCompositeCanvas(source);
+      if (!canvasStream) {
+        setError("Camera preview isn't ready yet — try again in a moment.");
+        return;
+      }
+      let combined = canvasStream;
 
       if (micEnabled) {
         try {
@@ -170,7 +188,7 @@ export function useSessionRecording(): UseSessionRecordingResult {
           const audioTrack = audioStream.getAudioTracks()[0] ?? null;
           setMicTrack(audioTrack);
           combined = new MediaStream([
-            ...videoStream.getVideoTracks(),
+            ...canvasStream.getVideoTracks(),
             ...audioStream.getAudioTracks(),
           ]);
         } catch {
@@ -212,7 +230,7 @@ export function useSessionRecording(): UseSessionRecordingResult {
         setMicTrack(null);
       }
     },
-    [micEnabled, selectedMicId, audioAdjustments, pushStats],
+    [micEnabled, selectedMicId, audioAdjustments, pushStats, startCompositeCanvas],
   );
 
   const pauseRecording = useCallback(() => {
@@ -243,12 +261,13 @@ export function useSessionRecording(): UseSessionRecordingResult {
     }
     recorderRef.current?.stop();
     recorderRef.current = null;
+    stopCompositeCanvas();
     if (statsIntervalRef.current) clearInterval(statsIntervalRef.current);
     statsIntervalRef.current = null;
     startedAtRef.current = null;
     setIsRecording(false);
     setIsPaused(false);
-  }, []);
+  }, [stopCompositeCanvas]);
 
   useEffect(() => {
     return () => {

@@ -17,7 +17,8 @@
  *   aiStatusLabel="Tracking"
  *   processingTimeMs={perf.processingTimeMs}
  *   videoRef={videoRef}
- *   fullscreenTargetRef={fullscreenTargetRef}
+ *   isFullscreen={isFullscreen}
+ *   onToggleFullscreen={toggleFullscreen}
  *   onSettingsClick={() => setSettingsOpen(true)}
  * />
  */
@@ -37,7 +38,8 @@ interface CameraTopBarProps {
   aiStatusLabel?: string;
   processingTimeMs?: number;
   videoRef: React.RefObject<HTMLVideoElement | null>;
-  fullscreenTargetRef: React.RefObject<HTMLElement | null>;
+  isFullscreen: boolean;
+  onToggleFullscreen: () => void;
   onSettingsClick: () => void;
   className?: string;
 }
@@ -51,7 +53,8 @@ export function CameraTopBar({
   aiStatusLabel,
   processingTimeMs,
   videoRef,
-  fullscreenTargetRef,
+  isFullscreen,
+  onToggleFullscreen,
   onSettingsClick,
   className,
 }: CameraTopBarProps) {
@@ -135,7 +138,8 @@ export function CameraTopBar({
           className="size-8 bg-transparent text-white/90 hover:bg-white/10 hover:text-white"
         />
         <FullscreenButton
-          targetRef={fullscreenTargetRef}
+          isFullscreen={isFullscreen}
+          onToggle={onToggleFullscreen}
           className="size-8 bg-transparent text-white/90 hover:bg-white/10 hover:text-white"
         />
       </div>
