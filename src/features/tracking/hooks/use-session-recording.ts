@@ -23,6 +23,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { downloadFile } from "@/lib/download-file";
+import { fixWebmDuration } from "@/lib/fix-webm-duration";
 
 export interface AudioDeviceInfo {
   deviceId: string;
@@ -104,6 +105,12 @@ export function useSessionRecording(): UseSessionRecordingResult {
   const pausedAccumRef = useRef(0);
   const pausedAtRef = useRef<number | null>(null);
   const statsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Captured synchronously in `stopRecording()`, since `startedAtRef` is
+  // already cleared by the time the recorder's async `onstop` fires — this
+  // is what lets us patch a real Duration into the downloaded file (see
+  // fix-webm-duration.ts) using our own paused-time-excluded elapsed time
+  // rather than re-deriving it from the container's Cluster timecodes.
+  const finalElapsedMsRef = useRef(0);
 
   const setAudioAdjustments = useCallback((adjustments: Partial<AudioAdjustments>) => {
     setAudioAdjustmentsState((prev) => ({ ...prev, ...adjustments }));
@@ -179,8 +186,10 @@ export function useSessionRecording(): UseSessionRecordingResult {
           if (event.data.size > 0) chunksRef.current.push(event.data);
         };
         recorder.onstop = () => {
-          const blob = new Blob(chunksRef.current, { type: recorder.mimeType });
-          downloadFile(`camera-session-${Date.now()}.webm`, blob);
+          const rawBlob = new Blob(chunksRef.current, { type: recorder.mimeType });
+          void fixWebmDuration(rawBlob, finalElapsedMsRef.current).then((blob) => {
+            downloadFile(`camera-session-${Date.now()}.webm`, blob);
+          });
           chunksRef.current = [];
           micStreamRef.current?.getTracks().forEach((track) => track.stop());
           micStreamRef.current = null;
@@ -224,6 +233,14 @@ export function useSessionRecording(): UseSessionRecordingResult {
   }, []);
 
   const stopRecording = useCallback(() => {
+    const startedAt = startedAtRef.current;
+    if (startedAt !== null) {
+      const pausedNow = pausedAtRef.current !== null ? Date.now() - pausedAtRef.current : 0;
+      finalElapsedMsRef.current = Math.max(
+        Date.now() - startedAt - pausedAccumRef.current - pausedNow,
+        0,
+      );
+    }
     recorderRef.current?.stop();
     recorderRef.current = null;
     if (statsIntervalRef.current) clearInterval(statsIntervalRef.current);
