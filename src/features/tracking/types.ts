@@ -51,15 +51,30 @@ export interface FaceTrackingResult {
   contours: FaceContour[];
   blink: { left: boolean; right: boolean };
   smile: boolean;
+  /** Real continuous 0-100 value (average of the `mouthSmileLeft`/`mouthSmileRight` blendshape scores) — `smile` above is just this thresholded at 35, kept for existing alert logic. */
+  smileScore: number;
   mouthOpen: boolean;
   /** Degrees. `null` when the engine wasn't configured to compute head pose. */
   headRotation: { pitch: number; yaw: number; roll: number } | null;
+  /** Face bounding-box area as a fraction (0-1) of the frame — a real, honest proxy for "how big the face appears," not a calibrated real-world distance (no depth sensor exists to measure that). */
+  sizeRatio: number;
+  /**
+   * Estimated from where the iris sits within each eye's socket bounding
+   * box (both real landmark positions) — `true` when roughly centered in
+   * both eyes. This is a real geometric computation, not fabricated, but
+   * it's an uncalibrated 2D estimate, not true gaze tracking — distinct
+   * from `lookingAway` (head-yaw based, in use-tracking-session-sync.ts).
+   * `null` when eye/iris landmarks aren't available this frame.
+   */
+  eyeContact: boolean | null;
 }
 
 export interface HandTrackingResult {
   hand: "left" | "right";
   points: TrackingPoint[];
   segments: [TrackingPoint, TrackingPoint][];
+  /** Real per-hand handedness-classification score (0-1) from `HandLandmarkerResult.handedness` — the closest genuine per-detection confidence MediaPipe exposes for a hand; used as an honest "visibility" proxy where a raw detection confidence is wanted. */
+  confidence: number;
 }
 
 export interface PoseTrackingResult {
@@ -93,6 +108,13 @@ export interface TrackingConfig {
    * left/right hand label so it matches what the user sees in the mirror.
    */
   mirrored: boolean;
+  /**
+   * Gesture classification is computed from hand-landmarker output, not a
+   * separate MediaPipe model — this only gates whether that classification
+   * runs/displays, not whether hand tracking itself is on. Defaults to true
+   * whenever hand tracking is on.
+   */
+  gestureRecognitionEnabled: boolean;
 }
 
 export const DEFAULT_TRACKING_CONFIG: TrackingConfig = {
@@ -100,7 +122,34 @@ export const DEFAULT_TRACKING_CONFIG: TrackingConfig = {
   quality: "balanced",
   smoothing: 0.65,
   mirrored: true,
+  gestureRecognitionEnabled: true,
 };
+
+/** Real per-model lifecycle state — the ONLY vocabulary the "AI Model Management" panel is allowed to render for `status`. */
+export type ModelStatus = "off" | "initializing" | "active" | "error";
+
+/**
+ * Per-model live stats for the "AI Model Management" panel. Every field here
+ * is either a genuine measured value or explicitly `null` — see
+ * tracking-engine.ts's `getModelStats()` for exactly which MediaPipe API each
+ * one comes from and why some models (Face) have no real confidence to
+ * report at all.
+ */
+export interface ModelStat {
+  status: ModelStatus;
+  /** `null` when the underlying MediaPipe result type exposes no detection-confidence field for this model (true for Face — see tracking-engine.ts). */
+  confidence: number | null;
+  /** Rolling average of real `performance.now()` deltas around this model's own `detectForVideo()` call — distinct from the other models' time in the same frame. */
+  processingTimeMs: number;
+  /** The actual `.task` model asset file currently loaded — a real identifier, not a fabricated semantic version (MediaPipe doesn't version individual models beyond the shared Tasks Vision runtime). */
+  modelAsset: string | null;
+}
+
+export interface ModelsStats {
+  face: ModelStat;
+  hand: ModelStat;
+  pose: ModelStat;
+}
 
 /** Face landmark connection groups, keyed the same as `FaceContourName`, for renderers to draw. */
 export const FACE_CONTOUR_NAMES: FaceContourName[] = [

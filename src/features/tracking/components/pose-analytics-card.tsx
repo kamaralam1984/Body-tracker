@@ -23,6 +23,7 @@ const MOVEMENT_LABELS: Record<string, string> = {
   standing: "Standing",
   walking: "Walking",
   running: "Running",
+  jumping: "Jumping",
   idle: "Idle",
 };
 
@@ -50,15 +51,59 @@ export function PoseAnalyticsCard({ className }: { className?: string }) {
           <Badge variant="accent">{MOVEMENT_LABELS[live.currentMovementState]}</Badge>
         )}
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex flex-col gap-4">
         <div className="grid grid-cols-2 gap-4">
           <StatItem
             label="Movement"
             value={live.currentMovementState ? MOVEMENT_LABELS[live.currentMovementState] : "—"}
           />
+          <StatItem
+            label="Movement speed"
+            value={live.movementSpeed !== null ? live.movementSpeed.toFixed(3) : "—"}
+          />
+          <StatItem
+            label="Balance"
+            value={live.poseBalanceScore !== null ? `${live.poseBalanceScore}%` : "—"}
+          />
           <StatItem label="Current set reps" value={live.currentSetReps} />
           <StatItem label="Exercise sets" value={live.exerciseSetCountTotal} />
         </div>
+        {live.bodyAngles && (
+          <div className="border-border-subtle grid grid-cols-2 gap-4 border-t pt-4">
+            <StatItem
+              label="Left elbow"
+              value={
+                live.bodyAngles.leftElbowDeg !== null
+                  ? `${Math.round(live.bodyAngles.leftElbowDeg)}°`
+                  : "—"
+              }
+            />
+            <StatItem
+              label="Right elbow"
+              value={
+                live.bodyAngles.rightElbowDeg !== null
+                  ? `${Math.round(live.bodyAngles.rightElbowDeg)}°`
+                  : "—"
+              }
+            />
+            <StatItem
+              label="Left knee"
+              value={
+                live.bodyAngles.leftKneeDeg !== null
+                  ? `${Math.round(live.bodyAngles.leftKneeDeg)}°`
+                  : "—"
+              }
+            />
+            <StatItem
+              label="Right knee"
+              value={
+                live.bodyAngles.rightKneeDeg !== null
+                  ? `${Math.round(live.bodyAngles.rightKneeDeg)}°`
+                  : "—"
+              }
+            />
+          </div>
+        )}
       </CardContent>
     </Card>
   );

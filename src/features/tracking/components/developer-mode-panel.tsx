@@ -18,6 +18,7 @@ import { Sparkline } from "@/components/ui/charts/sparkline";
 import { cn } from "@/lib/utils";
 import { useTrackingContext } from "../context/tracking-provider";
 import { allSubjects, boundsOf } from "../lib/render/render-modes";
+import { readJsHeapMb } from "../lib/read-js-heap";
 import type { TrackingFrame } from "../types";
 
 const FPS_HISTORY_LENGTH = 30;
@@ -26,24 +27,6 @@ const FRAME_POLL_MS = 500;
 function round(value: number, digits = 1): number {
   const factor = 10 ** digits;
   return Math.round(value * factor) / factor;
-}
-
-// `performance.memory` is a real, shipped Chrome-only API (JS heap usage) —
-// not part of the standard `Performance` type. There is NO web API anywhere
-// that exposes true OS-level CPU/GPU utilization percentages; showing one
-// would mean fabricating a number, which this app deliberately never does.
-// `hardwareConcurrency` (logical core count) is standard and always real.
-interface ChromeMemoryInfo {
-  usedJSHeapSize: number;
-  jsHeapSizeLimit: number;
-}
-interface PerformanceWithMemory extends Performance {
-  memory?: ChromeMemoryInfo;
-}
-
-function readJsHeapMb(): number | null {
-  const memory = (performance as PerformanceWithMemory).memory;
-  return memory ? memory.usedJSHeapSize / (1024 * 1024) : null;
 }
 
 export function DeveloperModePanel({ className }: { className?: string }) {

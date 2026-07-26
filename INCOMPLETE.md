@@ -58,15 +58,61 @@ User pasted a much bigger "Professional Camera Studio (Google Meet / OBS / Zoom 
 
 **Deliberately deferred to its own future phase, not attempted here:** background blur / virtual background / green screen and AI auto-framing / face-priority crop. Both need a 4th real-time segmentation model (MediaPipe `ImageSegmenter`) added to an already-running face+hand+pose pipeline, plus real frame-budget management — a genuine separate engineering project, not a quick add.
 
+## Phase 5 — AI Model Management, Live Performance Dashboard, Face/Hand/Pose Intelligence, Multi-Camera ✅ DONE (scoped, see notes)
+
+User pasted a checklist covering per-model management, a live performance dashboard, and deep face/hand/pose analytics, then asked for a real multi-camera system. Confirmed with the user up front: 2 cameras with AI tracking on only the active one (not both at once — full detection on two simultaneous streams is too heavy for typical hardware), and Segmentation/Object Detection shown honestly as "Not implemented" rather than built.
+
+**AI Model Management** (`ai-model-management-panel.tsx`) — real per-model ON/OFF, confidence, processing time, and model asset for the 3 models this app actually runs:
+
+- [x] Face (Detection + Mesh + Landmarks) — genuinely one MediaPipe model, not 3 separable ones; shown as one row with that explained. **Confidence is honestly "N/A"** — `FaceLandmarkerResult` exposes no detection-confidence field at all (verified against the actual `.d.ts`), only per-expression blendshape scores. Not a bug, nothing real to show.
+- [x] Hand Tracking — real confidence from `HandLandmarkerResult.handedness[i][0].score` (the actual Left/Right classification score, the closest genuine per-detection confidence MediaPipe exposes for hands).
+- [x] Pose Tracking — real confidence from the average of `NormalizedLandmark.visibility` across all 33 points (the only one of the three landmarkers that actually populates this field).
+- [x] Gesture Recognition — its own ON/OFF (`gestureRecognitionEnabled`, gates classification/tallying only — hand tracking itself stays on), explicitly documented as derived from Hand Tracking's output, not a separate model, so it has no confidence/processing-time of its own.
+- [x] Segmentation, Object Detection — listed with a "Not implemented" badge and the real reason (would need MediaPipe's `ImageSegmenter`/`ObjectDetector`, separate real-time models not wired into this app) — no fake toggle, no fabricated numbers.
+- [x] Real per-model processing time — `tracking-engine.ts` now times each landmarker's own `detectForVideo()` call separately, not just one combined number.
+
+**Live Performance Dashboard** (`live-performance-dashboard.tsx`) — a new always-visible dashboard (unlike the hidden-by-default Developer Mode panel): camera FPS, detection speed, processing time (labeled as the honest latency proxy — there's no separate "latency" API), resolution, frame count, dropped frames, JS heap memory (Chrome-only), CPU core count, and per-active-model confidence. **CPU/GPU utilization % stays explicitly "not available"** — same reasoning as every prior phase, no browser API exposes real OS-level usage.
+
+**Face Intelligence** — added to `FaceTrackingResult`/`face-analytics-card.tsx`:
+
+- [x] Face size — real bounding-box area as % of frame (an honest "how big does it look" proxy).
+- [x] Smile — now a real continuous 0-100 blendshape score, not just the existing boolean.
+- [x] Eye contact — real geometric estimate (iris centroid position within its own eye-socket bounding box, both from real landmarks), explicitly labeled as an uncalibrated 2D proxy, not true gaze tracking. Distinct from the existing yaw-based `lookingAway`.
+- [ ] **Face distance in real units** — still not possible, no depth sensor exists to calibrate a bounding-box size into actual centimeters/meters.
+- [ ] **Face detection confidence** — still honestly "N/A", see above.
+
+**Hand Intelligence** — added to `HandLiveStats`/`hand-analytics-card.tsx`, per hand (left/right):
+
+- [x] Finger count — real, sum of the already-computed per-finger extension booleans.
+- [x] Pinch distance — real, the already-computed thumb-tip/index-tip ratio, now surfaced.
+- [x] Wrist rotation — real 2D in-plane rotation (wrist → middle-finger-MCP vector vs. vertical); explicitly not full 3D pronation/supination (MediaPipe hand landmarks don't give reliable depth for that).
+- [x] Gesture match strength — a real rule-based margin (e.g. how far past the pinch-distance threshold), explicitly labeled as NOT a raw ML confidence, since gesture classification here is threshold geometry, not a model.
+- [x] Hand speed — real frame-to-frame wrist displacement over time, in normalized frame-widths/sec (not a physical speed — no depth/calibration exists).
+- [x] Visibility — real per-hand handedness-classification confidence (same source as the AI Model Management panel's Hand confidence).
+
+**Pose Intelligence** — added to `LiveTrackingStats`/`pose-analytics-card.tsx`:
+
+- [x] Walking / Running — promoted to the LIVE camera-page state (previously server-only); computed the same way the server does (zero-crossing rate of hip x-position → cadence/min), just read continuously instead of only at each 10s flush.
+- [x] Jumping — new: a real short hip-height rise-then-return detector, independent of the flush window.
+- [x] Body angle — real elbow/knee joint angles from 3-point landmark geometry (shoulder-elbow-wrist, hip-knee-ankle), `null` per joint when not confidently visible.
+- [x] Balance — a genuine new pose-based metric (horizontal hip-sway stability over a rolling window), explicitly distinct from and not to be confused with the existing head-yaw-based posture "balance" proxy in `intelligence-metrics-service.ts`. Documented as NOT a biomechanical center-of-mass measurement — just what's derivable from 2D landmarks.
+- [x] Movement speed — the already-computed motion-energy value, now actually surfaced as a displayed stat.
+
+**Multi-camera system** — `secondary-camera-card.tsx`, `use-fullscreen.ts`-adjacent wiring in `camera-view.tsx`:
+
+- [x] "Add second camera" — a fully independent second `useCamera()` instance (not wrapped in its own Context, so the page can see both cameras at once), simple preview + device picker + start/stop, deliberately NOT a duplicate of the primary camera's full toolbar/settings/recording stack.
+- [x] "AI tracking runs on: Camera 1 / Camera 2" switcher — `TrackingProvider`'s `videoRef`/`active` dynamically point at whichever camera is selected; the detection engine correctly tears down and reattaches when you switch (verified end-to-end: added camera 2, started it, switched tracking to it, confirmed Face model kept processing against the new feed with no errors).
+- [x] Zero risk to the existing single-camera flow — the second camera is 100% opt-in; nothing about the default experience changed.
+- [ ] Tracking both cameras simultaneously — deliberately out of scope per the user's own confirmed choice (too heavy for most devices); not attempted.
+
 ---
 
 ## Honest final gap-check against the original 15-section spec
 
 Everything above is genuinely working, not a placeholder. These are the specific items from the original spec that are **still missing** — listed plainly rather than silently dropped:
 
-- [ ] **Segmentation / Object Detection** models — different MediaPipe tasks entirely, not wired up at all
-- [ ] Per-model **Confidence** numbers and **Model Version** display — deliberately not shown (this app's whole design principle is never surfacing raw confidence as a false-precision number); version could be a simple label if wanted
-- [ ] **Face distance/size**, **Eye contact** (vs. looking-away), **Wrist rotation**, **Hand speed**, **Finger count**/**Pinch distance** as displayed numbers (used internally for gestures, not surfaced), **Body angle**, **Balance score**, **Movement speed** as a number — all would need new computer-vision math not built yet
+- [ ] **Segmentation / Object Detection** models — different MediaPipe tasks entirely, still not wired up (Phase 5 confirmed with the user this stays out of scope for now — see Phase 5 notes)
+- [ ] **Face detection confidence** and **face distance in real units** — genuinely not possible: MediaPipe's `FaceLandmarkerResult` has no confidence field, and there's no depth sensor to calibrate a real distance (see Phase 5 notes)
 - [ ] **Low light detected**, **Face too close**, **Face too far** alerts — need new brightness/face-size heuristics
 - [ ] **Camera matrix** raw display in Developer Mode (the underlying data exists, just not surfaced)
 - [ ] **PDF report** / **"AI Analytics Report"** export specifically for a live camera session (PDF export exists elsewhere in the app for other data, not wired here; JSON export already covers the same analytics data)

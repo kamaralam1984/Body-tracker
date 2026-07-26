@@ -27,6 +27,8 @@ import {
   type FaceContourName,
   type FaceTrackingResult,
   type HandTrackingResult,
+  type ModelStat,
+  type ModelsStats,
   type PoseTrackingResult,
   type TrackingConfig,
   type TrackingFrame,
@@ -117,6 +119,90 @@ function getCategoryScore(categories: Category[], name: string): number {
   return categories.find((c) => c.categoryName === name)?.score ?? 0;
 }
 
+/** Bounding box (0-1 normalized) of a set of points — used for both face size and eye-socket extent below. */
+function boundsOfPoints(
+  points: TrackingPoint[],
+  indices: Iterable<number>,
+): { minX: number; minY: number; maxX: number; maxY: number } | null {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  let found = false;
+  for (const index of indices) {
+    const p = points[index];
+    if (!p) continue;
+    found = true;
+    minX = Math.min(minX, p.x);
+    minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x);
+    maxY = Math.max(maxY, p.y);
+  }
+  return found ? { minX, minY, maxX, maxY } : null;
+}
+
+function centroidOf(points: TrackingPoint[], indices: Iterable<number>): TrackingPoint | null {
+  let sumX = 0;
+  let sumY = 0;
+  let count = 0;
+  for (const index of indices) {
+    const p = points[index];
+    if (!p) continue;
+    sumX += p.x;
+    sumY += p.y;
+    count += 1;
+  }
+  return count > 0 ? { x: sumX / count, y: sumY / count } : null;
+}
+
+function uniqueIndices(connections: Connection[]): Set<number> {
+  const out = new Set<number>();
+  for (const { start, end } of connections) {
+    out.add(start);
+    out.add(end);
+  }
+  return out;
+}
+
+/**
+ * Real geometric gaze estimate: where the iris centroid sits within its own
+ * eye socket's bounding box, normalized so 0 = dead center. Averaged across
+ * both eyes and thresholded — an honest 2D proxy from real landmark
+ * positions, not calibrated gaze tracking (no eye-tracking hardware here).
+ */
+function estimateEyeContact(
+  points: TrackingPoint[],
+  leftEye: Connection[],
+  rightEye: Connection[],
+  leftIris: Connection[],
+  rightIris: Connection[],
+): boolean | null {
+  const offsets: { dx: number; dy: number }[] = [];
+  for (const [eye, iris] of [
+    [leftEye, leftIris],
+    [rightEye, rightIris],
+  ] as const) {
+    const socket = boundsOfPoints(points, uniqueIndices(eye));
+    const irisCenter = centroidOf(points, uniqueIndices(iris));
+    if (!socket || !irisCenter) continue;
+    const width = socket.maxX - socket.minX || 1e-6;
+    const height = socket.maxY - socket.minY || 1e-6;
+    const cx = (socket.minX + socket.maxX) / 2;
+    const cy = (socket.minY + socket.maxY) / 2;
+    offsets.push({ dx: (irisCenter.x - cx) / width, dy: (irisCenter.y - cy) / height });
+  }
+  if (offsets.length === 0) return null;
+  const avgDx = offsets.reduce((sum, o) => sum + o.dx, 0) / offsets.length;
+  const avgDy = offsets.reduce((sum, o) => sum + o.dy, 0) / offsets.length;
+  // Eyes are wider than tall, so the horizontal tolerance is looser.
+  return Math.abs(avgDx) < 0.2 && Math.abs(avgDy) < 0.3;
+}
+
+/** Just the filename off a model asset URL — a real identifier for the "AI Model Management" panel's Version/Model column, not a fabricated semantic version. */
+function assetFilename(url: string): string {
+  return url.split("/").pop() ?? url;
+}
+
 /** Extracts pitch/yaw/roll (degrees) from a 4x4 row-major rotation+translation matrix. */
 function extractEulerAnglesDeg(matrix: Matrix): { pitch: number; yaw: number; roll: number } {
   const { data, columns } = matrix;
@@ -169,6 +255,16 @@ export class TrackingEngine {
   private missStreak = 0;
   private statusOverride: "reconnecting" | "error" | "unsupported" | null = null;
   private reinitAttempts = 0;
+
+  // Per-model stats for the "AI Model Management" panel — see getModelStats().
+  // `confidence` stays `null` for Face: FaceLandmarkerResult exposes no
+  // detection-confidence field at all (only per-expression blendshape
+  // scores), so there is genuinely nothing real to report there.
+  private faceProcessingMs = 0;
+  private handProcessingMs = 0;
+  private poseProcessingMs = 0;
+  private handConfidence: number | null = null;
+  private poseConfidence: number | null = null;
 
   constructor(config: TrackingConfig = DEFAULT_TRACKING_CONFIG) {
     this.config = config;
@@ -297,23 +393,46 @@ export class TrackingEngine {
     try {
       if (this.faceLandmarker) {
         anyEnabled = true;
+        const start = performance.now();
         const result = this.faceLandmarker.detectForVideo(video, timestampMs);
+        this.faceProcessingMs = performance.now() - start;
         face = this.processFace(result, timestampMs);
         faceCount = result.faceLandmarks.length;
         if (face) anyDetected = true;
       }
       if (this.handLandmarker) {
         anyEnabled = true;
+        const start = performance.now();
         const result = this.handLandmarker.detectForVideo(video, timestampMs);
+        this.handProcessingMs = performance.now() - start;
+        // Real per-hand classification confidence (Left/Right vs. that
+        // handedness's alternative) — the closest genuine per-detection
+        // score MediaPipe's HandLandmarkerResult exposes; averaged across
+        // however many hands are actually present this frame.
+        const handednessScores = result.handedness
+          .map((categories) => categories[0]?.score)
+          .filter((score): score is number => score !== undefined);
+        this.handConfidence =
+          handednessScores.length > 0
+            ? handednessScores.reduce((sum, s) => sum + s, 0) / handednessScores.length
+            : null;
         hands = this.processHands(result, timestampMs);
         if (hands.length > 0) anyDetected = true;
       }
       if (this.poseLandmarker) {
         anyEnabled = true;
+        const start = performance.now();
         const result = this.poseLandmarker.detectForVideo(
           video,
           timestampMs,
         ) as PoseLandmarkerResult;
+        this.poseProcessingMs = performance.now() - start;
+        // Real per-point visibility, averaged — pose is the only one of the
+        // three landmarkers that actually populates this field.
+        const points = result.landmarks[0];
+        this.poseConfidence = points?.length
+          ? points.reduce((sum, p) => sum + p.visibility, 0) / points.length
+          : null;
         pose = this.processPose(result, timestampMs);
         if (pose) anyDetected = true;
       }
@@ -371,6 +490,57 @@ export class TrackingEngine {
     } catch {
       this.statusOverride = "error";
     }
+  }
+
+  /** Real per-model stats for the "AI Model Management" panel — see the field-level doc comments on `ModelStat` in types.ts for exactly what's genuine vs. `null`-because-unavailable. */
+  getModelStats(): ModelsStats {
+    const engineError = this.statusOverride === "error" || this.statusOverride === "unsupported";
+
+    function statOf(
+      enabled: boolean,
+      ready: boolean,
+      processingMs: number,
+      confidence: number | null,
+      modelAsset: string | null,
+    ): ModelStat {
+      const status: ModelStat["status"] = !enabled
+        ? "off"
+        : engineError
+          ? "error"
+          : !ready
+            ? "initializing"
+            : "active";
+      return {
+        status,
+        confidence: status === "active" ? confidence : null,
+        processingTimeMs: status === "active" ? processingMs : 0,
+        modelAsset,
+      };
+    }
+
+    return {
+      face: statOf(
+        this.config.modes.has("face"),
+        this.faceLandmarker !== null,
+        this.faceProcessingMs,
+        null, // FaceLandmarkerResult exposes no detection-confidence field — see the field comment above.
+        this.faceLandmarker ? assetFilename(MODEL_URLS.face) : null,
+      ),
+      hand: statOf(
+        this.config.modes.has("hand"),
+        this.handLandmarker !== null,
+        this.handProcessingMs,
+        this.handConfidence,
+        this.handLandmarker ? assetFilename(MODEL_URLS.hand) : null,
+      ),
+      pose: statOf(
+        this.config.modes.has("pose"),
+        this.poseLandmarker !== null,
+        this.poseProcessingMs,
+        this.poseConfidence,
+        this.poseLandmarker ? assetFilename(MODEL_URLS.pose[this.config.quality]) : null,
+      ),
+    };
   }
 
   getStatus(): TrackingStatus {
@@ -447,17 +617,43 @@ export class TrackingEngine {
       left: getCategoryScore(blendshapes, "eyeBlinkLeft") > 0.5,
       right: getCategoryScore(blendshapes, "eyeBlinkRight") > 0.5,
     };
-    const smile =
-      (getCategoryScore(blendshapes, "mouthSmileLeft") +
+    const smileScore =
+      ((getCategoryScore(blendshapes, "mouthSmileLeft") +
         getCategoryScore(blendshapes, "mouthSmileRight")) /
-        2 >
-      0.35;
+        2) *
+      100;
+    const smile = smileScore > 35;
     const mouthOpen = getCategoryScore(blendshapes, "jawOpen") > 0.3;
 
     const matrix = result.facialTransformationMatrixes?.[primaryIndex];
     const headRotation = matrix ? extractEulerAnglesDeg(matrix) : null;
 
-    return { points: smoothed, contours, blink, smile, mouthOpen, headRotation };
+    const faceBounds = boundsOfPoints(smoothed, smoothed.keys());
+    const sizeRatio = faceBounds
+      ? (faceBounds.maxX - faceBounds.minX) * (faceBounds.maxY - faceBounds.minY)
+      : 0;
+
+    const eyeContact = this.faceContourConnections
+      ? estimateEyeContact(
+          smoothed,
+          this.faceContourConnections.leftEye,
+          this.faceContourConnections.rightEye,
+          this.faceContourConnections.leftIris,
+          this.faceContourConnections.rightIris,
+        )
+      : null;
+
+    return {
+      points: smoothed,
+      contours,
+      blink,
+      smile,
+      smileScore,
+      mouthOpen,
+      headRotation,
+      sizeRatio,
+      eyeContact,
+    };
   }
 
   private processHands(result: HandLandmarkerResult, t: number): HandTrackingResult[] {
@@ -485,6 +681,7 @@ export class TrackingEngine {
         hand,
         points: smoothed,
         segments: segmentsFromConnections(smoothed, this.handConnections),
+        confidence: category?.score ?? 0,
       });
     });
     return out;

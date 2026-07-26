@@ -21,4 +21,5 @@ export * from "./picture-in-picture-button";
 export * from "./permission-dialog";
 export * from "./permission-required-banner";
 export * from "./resolution-selector";
+export * from "./secondary-camera-card";
 export * from "./status-badge";

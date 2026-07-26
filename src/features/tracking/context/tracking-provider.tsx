@@ -55,7 +55,11 @@ export function TrackingProvider({ children, ...options }: TrackingProviderProps
   // useBodyTracking, not inside it, so the core detection hook stays
   // network-free. Its `live` return value also powers the camera page's
   // live session-summary/timeline/alerts/analytics panels.
-  const { live } = useTrackingSessionSync({ frameRef: tracking.frameRef, active: options.active });
+  const { live } = useTrackingSessionSync({
+    frameRef: tracking.frameRef,
+    active: options.active,
+    gestureRecognitionEnabled: tracking.config.gestureRecognitionEnabled,
+  });
   const [renderMode, setRenderMode] = useState<RenderMode>("skeleton");
   const renderPerfRef = useRef<RenderPerf>({ renderTimeMs: 0 });
   const recording = useSessionRecording();

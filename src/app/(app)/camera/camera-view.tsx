@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { BarChart3, RefreshCw } from "lucide-react";
+import { BarChart3, Plus, RefreshCw } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import {
   Accordion,
@@ -25,13 +25,18 @@ import {
   PerformancePanel,
   PermissionDialog,
   PermissionRequiredBanner,
+  SecondaryCameraCard,
   StatusBadge,
+  useCamera,
   useCameraContext,
   useFullscreen,
+  type UseCameraResult,
 } from "@/features/camera";
 import {
+  AIModelManagementPanel,
   DeveloperModePanel,
   FaceAnalyticsCard,
+  LivePerformanceDashboard,
   HandAnalyticsCard,
   LiveInsightsPanel,
   LiveTimeline,
@@ -70,7 +75,23 @@ function aiStatusLabel(status: TrackingStatus): string | undefined {
   }
 }
 
-function CameraPageContent() {
+type ActiveCameraId = "primary" | "secondary";
+
+interface CameraPageContentProps {
+  secondaryCamera: UseCameraResult;
+  secondCameraEnabled: boolean;
+  onEnableSecondCamera: () => void;
+  activeCameraId: ActiveCameraId;
+  onSetActiveCameraId: (id: ActiveCameraId) => void;
+}
+
+function CameraPageContent({
+  secondaryCamera,
+  secondCameraEnabled,
+  onEnableSecondCamera,
+  activeCameraId,
+  onSetActiveCameraId,
+}: CameraPageContentProps) {
   const { status, start, refresh, videoRef, settings } = useCameraContext();
   const tracking = useTrackingContext();
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -147,6 +168,12 @@ function CameraPageContent() {
                   Analytics
                 </Link>
               </Button>
+              {!secondCameraEnabled && (
+                <Button variant="outline" size="md" onClick={onEnableSecondCamera}>
+                  <Plus />
+                  Add second camera
+                </Button>
+              )}
             </>
           }
         />
@@ -219,12 +246,58 @@ function CameraPageContent() {
               </Button>
             </Card>
           )}
+
+          {!isFullscreen && secondCameraEnabled && (
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center gap-2">
+                <span className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+                  AI tracking runs on
+                </span>
+                <div className="flex gap-1.5">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={activeCameraId === "primary" ? "primary" : "outline"}
+                    onClick={() => onSetActiveCameraId("primary")}
+                  >
+                    Camera 1
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={activeCameraId === "secondary" ? "primary" : "outline"}
+                    onClick={() => onSetActiveCameraId("secondary")}
+                  >
+                    Camera 2
+                  </Button>
+                </div>
+              </div>
+              <SecondaryCameraCard
+                camera={secondaryCamera}
+                isActiveForTracking={activeCameraId === "secondary"}
+                onSetActive={() => onSetActiveCameraId("secondary")}
+              />
+              <p className="text-muted-foreground text-xs">
+                Both cameras can preview at once, but face/hand/pose AI only runs against one at a
+                time — running the full detection pipeline on two live streams simultaneously is too
+                heavy for most devices.
+              </p>
+            </div>
+          )}
         </div>
 
         {!isFullscreen && (
           <Accordion
             type="multiple"
-            defaultValue={["general", "video", "ai", "recording", "advanced"]}
+            defaultValue={[
+              "general",
+              "ai-models",
+              "performance",
+              "video",
+              "ai",
+              "recording",
+              "advanced",
+            ]}
             className="flex flex-col gap-1"
           >
             <AccordionItem value="general">
@@ -237,6 +310,24 @@ function CameraPageContent() {
                   <DeviceInfoCard />
                   <SessionSummaryCard />
                 </div>
+              </AccordionContent>
+            </AccordionItem>
+
+            <AccordionItem value="ai-models">
+              <AccordionTrigger className="text-sm font-semibold tracking-wide uppercase">
+                AI models
+              </AccordionTrigger>
+              <AccordionContent>
+                <AIModelManagementPanel />
+              </AccordionContent>
+            </AccordionItem>
+
+            <AccordionItem value="performance">
+              <AccordionTrigger className="text-sm font-semibold tracking-wide uppercase">
+                Performance
+              </AccordionTrigger>
+              <AccordionContent>
+                <LivePerformanceDashboard />
               </AccordionContent>
             </AccordionItem>
 
@@ -329,9 +420,28 @@ function CameraPageContent() {
 
 function CameraWithTracking() {
   const { videoRef, status } = useCameraContext();
+  // A second, fully independent `useCamera()` instance — not wrapped in its
+  // own `CameraProvider`/Context, so this component can see both cameras at
+  // once and decide which one's videoRef actually feeds the AI models.
+  // `secondCameraEnabled` gates all of it behind an explicit opt-in so the
+  // default single-camera experience is completely unaffected.
+  const secondaryCamera = useCamera();
+  const [secondCameraEnabled, setSecondCameraEnabled] = useState(false);
+  const [activeCameraId, setActiveCameraId] = useState<ActiveCameraId>("primary");
+
+  const trackedVideoRef = activeCameraId === "secondary" ? secondaryCamera.videoRef : videoRef;
+  const trackedActive =
+    activeCameraId === "secondary" ? secondaryCamera.status === "running" : status === "running";
+
   return (
-    <TrackingProvider videoRef={videoRef} active={status === "running"}>
-      <CameraPageContent />
+    <TrackingProvider videoRef={trackedVideoRef} active={trackedActive}>
+      <CameraPageContent
+        secondaryCamera={secondaryCamera}
+        secondCameraEnabled={secondCameraEnabled}
+        onEnableSecondCamera={() => setSecondCameraEnabled(true)}
+        activeCameraId={activeCameraId}
+        onSetActiveCameraId={setActiveCameraId}
+      />
     </TrackingProvider>
   );
 }

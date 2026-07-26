@@ -17,11 +17,18 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 import { TrackingEngine } from "../lib/tracking-engine";
 import {
   DEFAULT_TRACKING_CONFIG,
+  type ModelsStats,
   type TrackingConfig,
   type TrackingFrame,
   type TrackingMode,
   type TrackingStatus,
 } from "../types";
+
+const EMPTY_MODELS_STATS: ModelsStats = {
+  face: { status: "off", confidence: null, processingTimeMs: 0, modelAsset: null },
+  hand: { status: "off", confidence: null, processingTimeMs: 0, modelAsset: null },
+  pose: { status: "off", confidence: null, processingTimeMs: 0, modelAsset: null },
+};
 
 export interface UseBodyTrackingOptions {
   videoRef: RefObject<HTMLVideoElement | null>;
@@ -44,11 +51,14 @@ export interface UseBodyTrackingResult {
   frameRef: RefObject<TrackingFrame | null>;
   config: TrackingConfig;
   perf: TrackingPerf;
+  /** Per-model (Face/Hand/Pose) live stats for the "AI Model Management" panel — see ModelStat in types.ts. */
+  modelsStats: ModelsStats;
   setModes: (modes: Set<TrackingMode>) => void;
   toggleMode: (mode: TrackingMode) => void;
   setQuality: (quality: TrackingConfig["quality"]) => void;
   setSmoothing: (value: number) => void;
   setMirrored: (mirrored: boolean) => void;
+  setGestureRecognitionEnabled: (enabled: boolean) => void;
   /** Forces the engine to reinitialize even if modes/quality are unchanged — for a manual "try again" after an error. */
   retry: () => void;
 }
@@ -83,6 +93,7 @@ export function useBodyTracking({
     detectionFps: 0,
     droppedFrames: null,
   });
+  const [modelsStats, setModelsStats] = useState<ModelsStats>(EMPTY_MODELS_STATS);
 
   if (engineRef.current == null) {
     engineRef.current = new TrackingEngine(config);
@@ -192,6 +203,7 @@ export function useBodyTracking({
           ? video.getVideoPlaybackQuality().droppedVideoFrames
           : null;
       setPerf({ processingTimeMs: avgProcessingMs, detectionFps, droppedFrames });
+      setModelsStats(engine.getModelStats());
     }, PERF_PUSH_INTERVAL_MS);
 
     return () => {
@@ -239,6 +251,10 @@ export function useBodyTracking({
     setConfig((prev) => ({ ...prev, mirrored }));
   }, []);
 
+  const setGestureRecognitionEnabled = useCallback((enabled: boolean) => {
+    setConfig((prev) => ({ ...prev, gestureRecognitionEnabled: enabled }));
+  }, []);
+
   const retry = useCallback(() => {
     setRetryToken((prev) => prev + 1);
   }, []);
@@ -250,11 +266,13 @@ export function useBodyTracking({
     frameRef,
     config,
     perf,
+    modelsStats,
     setModes,
     toggleMode,
     setQuality,
     setSmoothing,
     setMirrored,
+    setGestureRecognitionEnabled,
     retry,
   };
 }

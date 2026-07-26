@@ -1,11 +1,15 @@
 "use client";
 
 /**
- * Live numeric face readout — head pitch/yaw/roll, blink count/rate, smile,
- * mouth open, looking-away, face-lost timer. Deliberately plain numbers/
- * booleans here (not a raw "confidence" percentage) — this card is the one
- * exception to the app's usual qualitative-only vocabulary, since it's an
- * explicit "developer/analytics" glance panel, not the main status badge.
+ * Live numeric face readout — head pitch/yaw/roll, blink count/rate, smile
+ * score, mouth open, eye contact, looking-away, face size, face-lost timer.
+ * These are real measured/derived values (blendshape scores, bounding-box
+ * ratios, landmark geometry) — this card is the one exception to the app's
+ * usual qualitative-only vocabulary, since it's an explicit "developer/
+ * analytics" glance panel, not the main status badge. What's still NOT
+ * shown: a raw face-*detection*-confidence percentage — MediaPipe's
+ * FaceLandmarkerResult exposes no such field at all (see
+ * ai-model-management-panel.tsx), so there's nothing real to display there.
  *
  * <FaceAnalyticsCard />
  */
@@ -52,8 +56,19 @@ export function FaceAnalyticsCard({ className }: { className?: string }) {
           <StatItem label="Looking away" value={live.lookingAway ? "Yes" : "No"} />
           <StatItem label="Blink count" value={live.blinkCountTotal} />
           <StatItem label="Blink rate" value={blinkRate !== null ? `${blinkRate}/min` : "—"} />
-          <StatItem label="Smile" value={live.smile ? "Yes" : "No"} />
+          <StatItem
+            label="Smile"
+            value={live.smileScore !== null ? `${Math.round(live.smileScore)}%` : "—"}
+          />
           <StatItem label="Mouth open" value={live.mouthOpen ? "Yes" : "No"} />
+          <StatItem
+            label="Eye contact"
+            value={live.eyeContact === null ? "—" : live.eyeContact ? "Yes" : "No"}
+          />
+          <StatItem
+            label="Face size"
+            value={live.faceSizePercent !== null ? `${Math.round(live.faceSizePercent)}%` : "—"}
+          />
           {live.faceLostSeconds > 0 && (
             <StatItem label="Face lost for" value={`${Math.round(live.faceLostSeconds)}s`} />
           )}
