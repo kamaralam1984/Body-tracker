@@ -61,7 +61,28 @@ const EMPTY_STATS: CameraStats = {
   frameCount: 0,
   uptimeMs: 0,
   startedAt: null,
+  brightness: null,
 };
+
+// Downscaling to a tiny frame before sampling keeps this genuinely cheap at
+// 1 sample/sec — enough pixels to average out noise, few enough to cost
+// nothing measurable next to actual detection work.
+const BRIGHTNESS_SAMPLE_SIZE = 16;
+
+/** Real average pixel luminance (0-255, Rec. 601 luma) from the current video frame — not estimated, an actual `getImageData()` read. */
+function sampleBrightness(video: HTMLVideoElement, canvas: HTMLCanvasElement): number | null {
+  if (!video.videoWidth || !video.videoHeight) return null;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return null;
+  ctx.drawImage(video, 0, 0, BRIGHTNESS_SAMPLE_SIZE, BRIGHTNESS_SAMPLE_SIZE);
+  const { data } = ctx.getImageData(0, 0, BRIGHTNESS_SAMPLE_SIZE, BRIGHTNESS_SAMPLE_SIZE);
+  let sum = 0;
+  const pixelCount = data.length / 4;
+  for (let i = 0; i < data.length; i += 4) {
+    sum += 0.299 * data[i]! + 0.587 * data[i + 1]! + 0.114 * data[i + 2]!;
+  }
+  return sum / pixelCount;
+}
 
 export interface UseCameraOptions {
   initialSettings?: Partial<CameraSettingsState>;
@@ -119,6 +140,7 @@ export function useCamera(options: UseCameraOptions = {}): UseCameraResult {
   const fpsWindowStartRef = useRef(0);
   const rafRef = useRef<number | undefined>(undefined);
   const statsIntervalRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+  const brightnessCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const isSupported = useSyncExternalStore(
     noopSubscribe,
@@ -387,12 +409,22 @@ export function useCamera(options: UseCameraOptions = {}): UseCameraResult {
     }
     rafRef.current = requestAnimationFrame(tick);
 
+    if (!brightnessCanvasRef.current) {
+      const canvas = document.createElement("canvas");
+      canvas.width = BRIGHTNESS_SAMPLE_SIZE;
+      canvas.height = BRIGHTNESS_SAMPLE_SIZE;
+      brightnessCanvasRef.current = canvas;
+    }
+
     statsIntervalRef.current = setInterval(() => {
       const now = performance.now();
       const elapsedSeconds = (now - fpsWindowStartRef.current) / 1000;
       const fps = elapsedSeconds > 0 ? Math.round(frameCountRef.current / elapsedSeconds) : 0;
       frameCountRef.current = 0;
       fpsWindowStartRef.current = now;
+      const brightness = brightnessCanvasRef.current
+        ? sampleBrightness(video, brightnessCanvasRef.current)
+        : null;
 
       setStats((prev) => ({
         fps,
@@ -401,6 +433,7 @@ export function useCamera(options: UseCameraOptions = {}): UseCameraResult {
         frameCount: prev.frameCount + 1,
         uptimeMs: Date.now() - startedAt,
         startedAt: prev.startedAt ?? startedAt,
+        brightness,
       }));
     }, 1000);
 

@@ -56,6 +56,8 @@ export interface FaceTrackingResult {
   mouthOpen: boolean;
   /** Degrees. `null` when the engine wasn't configured to compute head pose. */
   headRotation: { pitch: number; yaw: number; roll: number } | null;
+  /** The real raw 4x4 facial transformation matrix MediaPipe returns (row-major, flattened) — `headRotation` above is just this converted to Euler angles; the matrix itself is for Developer Mode's "Camera matrix" display, not otherwise used. `null` when unavailable. */
+  transformationMatrix: { rows: number; columns: number; data: number[] } | null;
   /** Face bounding-box area as a fraction (0-1) of the frame — a real, honest proxy for "how big the face appears," not a calibrated real-world distance (no depth sensor exists to measure that). */
   sizeRatio: number;
   /**

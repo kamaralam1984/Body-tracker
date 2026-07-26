@@ -2,10 +2,12 @@
 
 /**
  * Live activity feed for the current camera session — gestures,
- * distraction/drowsiness events, exercise starts/completions — reusing the
- * generic `Timeline`/`TimelineItem` primitive. Reads
- * `useTrackingContext().live.timeline` (see `use-tracking-session-sync.ts`),
- * newest first, capped at the last 20 entries.
+ * distraction/drowsiness events, exercise starts/completions, debounced
+ * blink/smile events — reusing the generic `Timeline`/`TimelineItem`
+ * primitive. Reads `useTrackingContext().live.timeline` (see
+ * `use-tracking-session-sync.ts`), newest first, capped at the last 20
+ * entries. Blinks/smiles are debounced there (not one entry per blink —
+ * that would flood this 20-entry cap within a minute).
  *
  * <LiveTimeline />
  */
@@ -16,6 +18,7 @@ import {
   Eye,
   EyeOff,
   Smile,
+  ScanEye,
   CircleAlert,
   PlayCircle,
   type LucideIcon,
@@ -36,6 +39,7 @@ function iconAndVariantFor(label: string): {
   if (label === "Looked away") return { icon: Eye, variant: "warning" };
   if (label.startsWith("Eyes closed")) return { icon: CircleAlert, variant: "danger" };
   if (label === "Smile") return { icon: Smile, variant: "success" };
+  if (label === "Blinked") return { icon: ScanEye, variant: "neutral" };
   return { icon: Hand, variant: "neutral" };
 }
 

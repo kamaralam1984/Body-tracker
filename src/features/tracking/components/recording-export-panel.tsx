@@ -5,6 +5,9 @@
  * - Local-only video recording (`use-session-recording.ts`) — downloads a
  *   `.webm`, never uploaded.
  * - JSON/CSV export of the current session's summary + timeline.
+ * - "AI Analytics Report" PDF — reuses the same jsPDF-based engine already
+ *   proven in `@/features/report-center`, built from this session's live
+ *   stats (`build-session-report.ts`), not a second PDF pipeline.
  * - An opt-in, capped (~5fps, 10 min) raw landmark sample log for anyone who
  *   wants per-frame data — off by default since it's a real memory cost.
  *
@@ -12,7 +15,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Circle, Download, Mic, Pause, Play, Square } from "lucide-react";
+import { Circle, Download, FileText, Mic, Pause, Play, Square } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -21,8 +24,11 @@ import { Select, type SelectOption } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { downloadJson } from "@/lib/download-file";
 import { exportToCsv } from "@/features/reporting/lib/export-engine";
+import { generateReportPdf } from "@/features/report-center/lib/pdf-engine";
+import { useAuth } from "@/features/auth";
 import { useCameraContext } from "@/features/camera";
 import { useTrackingContext } from "../context/tracking-provider";
+import { buildSessionReportDocument } from "../lib/build-session-report";
 import { MicLevelMeter } from "./mic-level-meter";
 
 function formatBytes(bytes: number): string {
@@ -53,9 +59,11 @@ interface LandmarkSample {
 export function RecordingExportPanel({ className }: { className?: string }) {
   const { status, videoRef, settings } = useCameraContext();
   const { live, frameRef, recording, renderMode } = useTrackingContext();
+  const { user } = useAuth();
   const [landmarkLoggingEnabled, setLandmarkLoggingEnabled] = useState(false);
   const samplesRef = useRef<LandmarkSample[]>([]);
   const [sampleCount, setSampleCount] = useState(0);
+  const [generatingPdf, setGeneratingPdf] = useState(false);
 
   useEffect(() => {
     recording.refreshAudioDevices();
@@ -147,6 +155,16 @@ export function RecordingExportPanel({ className }: { className?: string }) {
 
   function handleExportLandmarksJson() {
     downloadJson(`camera-session-landmarks-${Date.now()}.json`, samplesRef.current);
+  }
+
+  async function handleExportPdfReport() {
+    setGeneratingPdf(true);
+    try {
+      const doc = buildSessionReportDocument(live, user?.name ?? "Body Tracker user");
+      await generateReportPdf(doc, `camera-session-ai-report-${Date.now()}`);
+    } finally {
+      setGeneratingPdf(false);
+    }
   }
 
   return (
@@ -283,6 +301,15 @@ export function RecordingExportPanel({ className }: { className?: string }) {
           </Button>
           <Button type="button" variant="outline" size="sm" onClick={handleExportTimelineCsv}>
             <Download /> Export timeline (CSV)
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={generatingPdf}
+            onClick={() => void handleExportPdfReport()}
+          >
+            <FileText /> {generatingPdf ? "Generating…" : "Export AI Analytics Report (PDF)"}
           </Button>
         </div>
 

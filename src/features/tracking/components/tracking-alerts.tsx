@@ -2,14 +2,15 @@
 
 /**
  * Smart alert banners for the live camera page — combines camera connection
- * state (`useCameraContext()`) with live tracking signals
- * (`useTrackingContext().live`) so "camera disconnected" and "no face
- * detected"/"poor posture"/"eyes closed too long" all render the same way.
+ * state (`useCameraContext()`, including real sampled frame brightness) with
+ * live tracking signals (`useTrackingContext().live`) so "camera
+ * disconnected"/"low light"/"no face detected"/"poor posture"/"eyes closed
+ * too long"/"multiple people detected" all render the same way.
  *
  * <TrackingAlerts />
  */
 
-import { AlertTriangle, CameraOff, EyeOff, Users, UserX } from "lucide-react";
+import { AlertTriangle, CameraOff, EyeOff, Sun, Users, UserX } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCameraContext } from "@/features/camera";
@@ -18,6 +19,10 @@ import { useTrackingContext } from "../context/tracking-provider";
 const NO_FACE_ALERT_SECONDS = 3; // matches FACE_LOST_DISTRACTION_MS in use-tracking-session-sync.ts
 const EYES_CLOSED_ALERT_SECONDS = 3; // sustained closure, distinct from a normal blink
 const POOR_POSTURE_THRESHOLD = 50;
+// 0-255 scale (real Rec. 601 luma sampled from the actual video frame, see
+// use-camera.ts's sampleBrightness) — below this reads as a genuinely dim
+// room, not a fabricated "lux" reading.
+const LOW_LIGHT_THRESHOLD = 40;
 
 interface Alert {
   id: string;
@@ -35,13 +40,20 @@ function AlertRow({ icon: Icon, message }: { icon: LucideIcon; message: string }
 }
 
 export function TrackingAlerts({ className }: { className?: string }) {
-  const { status: cameraStatus } = useCameraContext();
+  const { status: cameraStatus, stats } = useCameraContext();
   const { live } = useTrackingContext();
 
   const alerts: Alert[] = [];
 
   if (cameraStatus === "camera-error" || cameraStatus === "reconnecting") {
     alerts.push({ id: "camera-disconnected", icon: CameraOff, message: "Camera disconnected" });
+  }
+  if (
+    (cameraStatus === "running" || cameraStatus === "paused") &&
+    stats.brightness !== null &&
+    stats.brightness < LOW_LIGHT_THRESHOLD
+  ) {
+    alerts.push({ id: "low-light", icon: Sun, message: "Low light detected" });
   }
   if (
     live.sessionStartedAt &&

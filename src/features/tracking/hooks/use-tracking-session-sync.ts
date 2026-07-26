@@ -53,6 +53,16 @@ const GESTURE_LABELS: Record<GestureType, string> = {
 };
 
 const GESTURE_DEBOUNCE_MS = 2000; // minimum gap between repeat emissions of the SAME gesture type
+// Blinking is continuous (real humans blink every few seconds) — logging
+// every single blink would flood the 20-entry timeline within a minute and
+// bury every other event. This debounces to at most one "Blinked" entry
+// per window, same spirit as GESTURE_DEBOUNCE_MS but scaled to how much
+// more frequent blinks are.
+const BLINK_TIMELINE_DEBOUNCE_MS = 20_000;
+// Smile is a state transition (not-smiling -> smiling), not a per-frame
+// event, so it debounces far less aggressively than blinks — this just
+// stops rapid flicker right at the blendshape threshold from re-firing.
+const SMILE_TIMELINE_DEBOUNCE_MS = 5_000;
 const WAVE_WINDOW_MS = 1500;
 const WAVE_MIN_REVERSALS = 4; // direction reversals of wrist x within the window to call it a "wave", not a drift
 const MIN_WAVE_DELTA = 0.01; // normalized-x noise floor below which a frame-to-frame move doesn't count
@@ -568,6 +578,9 @@ export function useTrackingSessionSync({
   const faceLostFlaggedRef = useRef(false);
   const yawExcursionSinceRef = useRef<number | null>(null);
   const yawExcursionFlaggedRef = useRef(false);
+  const lastBlinkTimelineAtRef = useRef<number>(-Infinity);
+  const wasSmilingRef = useRef(false);
+  const lastSmileTimelineAtRef = useRef<number>(-Infinity);
 
   const handStatesRef = useRef<Map<"left" | "right", HandGestureState>>(new Map());
   const lastGestureEmittedRef = useRef<Map<GestureType, number>>(new Map());
@@ -1005,9 +1018,23 @@ export function useTrackingSessionSync({
         } else {
           acc.blinkCount += 1;
           lifetimeBlinkCountRef.current += 1;
+          if (frame.timestampMs - lastBlinkTimelineAtRef.current >= BLINK_TIMELINE_DEBOUNCE_MS) {
+            lastBlinkTimelineAtRef.current = frame.timestampMs;
+            pushTimelineEntry("Blinked");
+          }
         }
         eyesClosedSinceRef.current = null;
       }
+
+      // Smile — a real state transition (not-smiling -> smiling), debounced
+      // against threshold flicker, not logged on every frame while smiling.
+      if (face.smile && !wasSmilingRef.current) {
+        if (frame.timestampMs - lastSmileTimelineAtRef.current >= SMILE_TIMELINE_DEBOUNCE_MS) {
+          lastSmileTimelineAtRef.current = frame.timestampMs;
+          pushTimelineEntry("Smile");
+        }
+      }
+      wasSmilingRef.current = face.smile;
 
       const rotation = face.headRotation;
       if (!rotation) return;
@@ -1174,6 +1201,9 @@ export function useTrackingSessionSync({
         faceLostFlaggedRef.current = false;
         yawExcursionSinceRef.current = null;
         yawExcursionFlaggedRef.current = false;
+        lastBlinkTimelineAtRef.current = -Infinity;
+        wasSmilingRef.current = false;
+        lastSmileTimelineAtRef.current = -Infinity;
         handStatesRef.current = new Map();
         lastGestureEmittedRef.current = new Map();
         prevPosePointsRef.current = null;

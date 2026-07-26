@@ -184,6 +184,28 @@ export function DeveloperModePanel({ className }: { className?: string }) {
 
           <div className="flex flex-col gap-2">
             <span className="text-muted-foreground text-xs tracking-wide uppercase">
+              Camera matrix (face transformation)
+            </span>
+            {polledFrame?.face?.transformationMatrix ? (
+              <div
+                className="grid gap-1 font-mono text-xs"
+                style={{
+                  gridTemplateColumns: `repeat(${polledFrame.face.transformationMatrix.columns}, minmax(0, 1fr))`,
+                }}
+              >
+                {polledFrame.face.transformationMatrix.data.map((value, i) => (
+                  <span key={i} className="text-muted-foreground text-right">
+                    {round(value, 2)}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="text-muted-foreground text-xs">No face detected this frame.</p>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <span className="text-muted-foreground text-xs tracking-wide uppercase">
               Recent events
             </span>
             {live.timeline.length === 0 ? (

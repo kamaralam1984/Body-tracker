@@ -82,6 +82,8 @@ export interface CameraStats {
   frameCount: number;
   uptimeMs: number;
   startedAt: number | null;
+  /** Real average pixel luminance (0-255, Rec. 601 luma) sampled from the actual video frame once a second — `null` before the first sample. Powers the "Low light" alert; not a lux/photometric measurement, just genuine on-screen brightness. */
+  brightness: number | null;
 }
 
 // Non-standard Media Capture/Image Capture extensions (Chrome/Android only)

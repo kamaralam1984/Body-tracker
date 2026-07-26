@@ -727,6 +727,9 @@ export class TrackingEngine {
 
     const matrix = result.facialTransformationMatrixes?.[primaryIndex];
     const headRotation = matrix ? extractEulerAnglesDeg(matrix) : null;
+    const transformationMatrix = matrix
+      ? { rows: matrix.rows, columns: matrix.columns, data: Array.from(matrix.data) }
+      : null;
 
     const faceBounds = boundsOfPoints(smoothed, smoothed.keys());
     const sizeRatio = faceBounds
@@ -751,6 +754,7 @@ export class TrackingEngine {
       smileScore,
       mouthOpen,
       headRotation,
+      transformationMatrix,
       sizeRatio,
       eyeContact,
     };
