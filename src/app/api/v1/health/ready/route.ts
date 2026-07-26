@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getEnv } from "@/server/env";
 import { getPrisma } from "@/server/db/prisma";
+import { beginRequestContext, logApiRequest } from "@/server/http/request-context";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,8 @@ export const dynamic = "force-dynamic";
  * Docker health-check model. A real outage (bad credentials, Neon down,
  * network partition) makes this correctly report `ready: false`.
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
+  beginRequestContext(request);
   const checks: Record<string, { ok: boolean; detail?: string }> = {};
 
   try {
@@ -36,5 +38,7 @@ export async function GET() {
   }
 
   const ready = Object.values(checks).every((c) => c.ok);
-  return NextResponse.json({ ready, checks }, { status: ready ? 200 : 503 });
+  const status = ready ? 200 : 503;
+  logApiRequest(status);
+  return NextResponse.json({ ready, checks }, { status });
 }

@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { ok, errorResponse } from "@/server/http/respond";
+import { beginRequestContext } from "@/server/http/request-context";
 
 export const dynamic = "force-dynamic";
 
@@ -8,6 +9,7 @@ export const dynamic = "force-dynamic";
 // end-to-end without depending on any external network endpoint.
 export async function POST(request: NextRequest) {
   try {
+    beginRequestContext(request);
     const event = request.headers.get("x-btk-event");
     const signature = request.headers.get("x-btk-signature");
 

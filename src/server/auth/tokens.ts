@@ -18,6 +18,12 @@ export interface AccessTokenPayload {
   type: "access";
   iat: number;
   exp: number;
+  // Present only on tokens issued via the OAuth2 flow (src/app/api/v1/oauth/token/route.ts) —
+  // restricts the token to the scopes the user actually consented to,
+  // instead of the full role-based scope set a normal login token gets.
+  // See resolvePrincipal()'s Bearer branch in src/server/http/principal.ts.
+  scopes?: string[];
+  oauthClientId?: string;
 }
 
 export interface RefreshTokenPayload {
@@ -63,7 +69,13 @@ function decode<T>(token: string): T | null {
 const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
 const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 
-export function signAccessToken(input: { userId: string; orgId: string; role: string }): string {
+export function signAccessToken(input: {
+  userId: string;
+  orgId: string;
+  role: string;
+  scopes?: string[];
+  oauthClientId?: string;
+}): string {
   const iat = Math.floor(Date.now() / 1000);
   const payload: AccessTokenPayload = {
     sub: input.userId,
@@ -72,6 +84,8 @@ export function signAccessToken(input: { userId: string; orgId: string; role: st
     type: "access",
     iat,
     exp: iat + ACCESS_TOKEN_TTL_SECONDS,
+    ...(input.scopes ? { scopes: input.scopes } : {}),
+    ...(input.oauthClientId ? { oauthClientId: input.oauthClientId } : {}),
   };
   return encode(payload);
 }

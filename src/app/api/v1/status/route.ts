@@ -1,10 +1,13 @@
+import { NextRequest } from "next/server";
 import { getPrisma } from "@/server/db/prisma";
 import { ok } from "@/server/http/respond";
 import { snapshotMetrics } from "@/server/http/metrics";
+import { beginRequestContext } from "@/server/http/request-context";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  beginRequestContext(request);
   const prisma = await getPrisma();
   const mem = process.memoryUsage();
 

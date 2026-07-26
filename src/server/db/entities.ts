@@ -25,7 +25,11 @@ export type Scope =
   | "webhooks:read"
   | "webhooks:write"
   | "api-keys:read"
-  | "api-keys:write";
+  | "api-keys:write"
+  | "oauth-clients:read"
+  | "oauth-clients:write"
+  | "service-accounts:read"
+  | "service-accounts:write";
 
 export const ALL_SCOPES: Scope[] = [
   "users:read",
@@ -43,6 +47,10 @@ export const ALL_SCOPES: Scope[] = [
   "webhooks:write",
   "api-keys:read",
   "api-keys:write",
+  "oauth-clients:read",
+  "oauth-clients:write",
+  "service-accounts:read",
+  "service-accounts:write",
 ];
 
 export interface Organization {

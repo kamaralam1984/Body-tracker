@@ -3,6 +3,7 @@ import { paramsFromZodObject } from "@/server/openapi/schema-registry";
 import { querySchema as summaryQuerySchema } from "@/app/api/v1/analytics/summary/route";
 import { querySchema as dailyQuerySchema } from "@/app/api/v1/analytics/daily/route";
 import { querySchema as insightsQuerySchema } from "@/app/api/v1/analytics/insights/route";
+import { querySchema as apiUsageQuerySchema } from "@/app/api/v1/analytics/api-usage/route";
 
 const security = [{ bearerAuth: [] }, { apiKeyAuth: [] }];
 
@@ -123,6 +124,83 @@ export const analyticsPaths: OpenApiDocument["paths"] = {
               schema: {
                 type: "object",
                 properties: { data: { type: "array", items: insightSchema } },
+              },
+            },
+          },
+        },
+        default: errorResponse,
+      },
+    },
+  },
+  "/analytics/api-usage": {
+    get: {
+      tags: ["Analytics"],
+      summary: "This organization's real API request/latency/error analytics",
+      description:
+        "Aggregated from the real per-request `ApiRequestLog` table (see /docs on request logging) — not estimated or sampled for the headline totals. Per-row breakdowns (top endpoints, device mix, requests/minute) are computed over a bounded recent sample for very high-traffic orgs; `data.sampled` is `true` when that cap was hit.",
+      security,
+      parameters: paramsFromZodObject(apiUsageQuerySchema, "query", {
+        days: "How many days back to aggregate (1-90, default 7)",
+      }),
+      responses: {
+        "200": {
+          description: "Real API usage analytics for the caller's organization",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  data: {
+                    type: "object",
+                    properties: {
+                      rangeDays: { type: "integer" },
+                      sampled: { type: "boolean" },
+                      totalRequests: { type: "integer" },
+                      successRate: { type: ["number", "null"] },
+                      errorRate: { type: ["number", "null"] },
+                      avgLatencyMs: { type: ["integer", "null"] },
+                      requestsByStatusClass: {
+                        type: "object",
+                        additionalProperties: { type: "integer" },
+                      },
+                      topEndpoints: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            method: { type: "string" },
+                            path: { type: "string" },
+                            count: { type: "integer" },
+                          },
+                        },
+                      },
+                      byMethod: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: { method: { type: "string" }, count: { type: "integer" } },
+                        },
+                      },
+                      deviceBreakdown: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: { label: { type: "string" }, count: { type: "integer" } },
+                        },
+                      },
+                      requestsPerMinuteRecent: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            minute: { type: "string", format: "date-time" },
+                            count: { type: "integer" },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
               },
             },
           },

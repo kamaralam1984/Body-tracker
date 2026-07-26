@@ -3,6 +3,7 @@ import { z } from "zod";
 import { ok, errorResponse } from "@/server/http/respond";
 import { parseJsonBody } from "@/server/http/validate";
 import { refreshSession } from "@/server/services/auth-service";
+import { beginRequestContext } from "@/server/http/request-context";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,7 @@ export const refreshSchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
+    beginRequestContext(request);
     const body = await parseJsonBody(request, refreshSchema);
     const result = await refreshSession(body.refreshToken);
     return ok(result);

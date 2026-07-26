@@ -61,6 +61,45 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # Opt-in observability stack — not required to run the app (see the
+  # per-metric fallback notes in src/app/api/v1/metrics/route.ts).
+  # `deploy/monitoring/prometheus.yml` already scrapes `app:3000/api/v1/metrics`
+  # (a real, working endpoint today, with or without this stack running);
+  # `deploy/monitoring/alerts.yml` has real alert rules against the real
+  # `btk_*` metric names; `deploy/monitoring/grafana/provisioning/` wires
+  # Grafana to this Prometheus and auto-loads the dashboard JSON in
+  # `grafana/provisioning/dashboards/json/`. Start with
+  # `docker compose --profile observability up -d`.
+  prometheus:
+    # Unpinned by design here (unlike postgres/redis above) — pin to a
+    # specific tag once you've actually stood this profile up and know
+    # which version you're running.
+    image: prom/prometheus:latest
+    profiles: ["observability"]
+    volumes:
+      - ./deploy/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    profiles: ["observability"]
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - ./deploy/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3300:3000"
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   redis_data:
+  prometheus_data:
+  grafana_data:

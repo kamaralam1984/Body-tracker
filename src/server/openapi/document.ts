@@ -27,6 +27,14 @@ export const OPENAPI_BASE: Omit<OpenApiDocument, "paths"> = {
     { name: "Analytics", description: "Aggregated performance analytics" },
     { name: "Reports", description: "Generated report documents" },
     { name: "Webhooks", description: "Outbound event delivery" },
+    {
+      name: "OAuth",
+      description: "This app acting as its own OAuth2 provider (authorization-code + PKCE)",
+    },
+    {
+      name: "Service Accounts",
+      description: "Machine identities for CI/CD and backend integrations",
+    },
     { name: "Platform", description: "Health, status, and platform metadata" },
   ],
   components: {

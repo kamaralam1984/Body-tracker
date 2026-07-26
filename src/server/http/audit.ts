@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { getPrisma } from "../db/prisma";
+import { logger } from "../logging/logger";
 
 /**
  * Fire-and-forget audit log write — callers don't await this (audit
@@ -25,5 +26,5 @@ export function writeAudit(input: {
         },
       }),
     )
-    .catch((error) => console.error("[audit] failed to write audit log entry", error));
+    .catch((error) => logger.error({ err: error }, "failed to write audit log entry"));
 }

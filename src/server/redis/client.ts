@@ -1,4 +1,5 @@
 import Redis from "ioredis";
+import { logger } from "../logging/logger";
 
 /**
  * Optional shared Redis client — `null` (not connected) unless `REDIS_URL`
@@ -22,9 +23,9 @@ export function getRedisClient(): Redis | null {
 
   client = new Redis(url, { maxRetriesPerRequest: 1 });
   client.on("error", (error) => {
-    console.error(
-      "[redis] connection error — features using it fall back to per-worker state",
-      error,
+    logger.error(
+      { err: error },
+      "Redis connection error — features using it fall back to per-worker state",
     );
   });
   return client;

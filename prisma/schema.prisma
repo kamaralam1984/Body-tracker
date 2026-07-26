@@ -113,6 +113,8 @@ model Organization {
   reports               Report[]
   webhooks              Webhook[]
   auditLog              AuditLogEntry[]
+  oauthClients          OAuthClient[]
+  serviceAccounts       ServiceAccount[]
 
   @@map("organizations")
 }
@@ -141,16 +143,17 @@ model User {
   status       UserStatus @default(active)
   createdAt    DateTime   @default(now())
 
-  organization          Organization           @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  team                  Team?                  @relation(fields: [teamId], references: [id], onDelete: SetNull)
-  refreshTokens         RefreshToken[]
-  apiKeys               ApiKey[]
-  trackingSessions      TrackingSession[]
-  trackingMetricSamples TrackingMetricSample[]
-  exerciseSets          ExerciseSet[]
-  analyticsSnapshots    AnalyticsSnapshot[]
-  reports               Report[]
-  auditLogEntries       AuditLogEntry[]
+  organization            Organization             @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  team                    Team?                    @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  refreshTokens           RefreshToken[]
+  apiKeys                 ApiKey[]
+  trackingSessions        TrackingSession[]
+  trackingMetricSamples   TrackingMetricSample[]
+  exerciseSets            ExerciseSet[]
+  analyticsSnapshots      AnalyticsSnapshot[]
+  reports                 Report[]
+  auditLogEntries         AuditLogEntry[]
+  oauthAuthorizationCodes OAuthAuthorizationCode[]
 
   @@unique([orgId, email])
   @@index([orgId])
@@ -158,12 +161,19 @@ model User {
 }
 
 model RefreshToken {
-  id        String    @id @default(cuid())
-  userId    String
-  tokenHash String
-  createdAt DateTime  @default(now())
-  expiresAt DateTime
-  revokedAt DateTime?
+  id            String    @id @default(cuid())
+  userId        String
+  tokenHash     String
+  createdAt     DateTime  @default(now())
+  expiresAt     DateTime
+  revokedAt     DateTime?
+  // Empty/null on normal login-issued refresh tokens (full role-based
+  // scopes on refresh, today's existing behavior, unchanged). Set only on
+  // OAuth2-issued refresh tokens, so rotating them via /api/v1/oauth/token
+  // re-signs a new access token restricted to the SAME consented scopes
+  // instead of silently escalating back to the user's full role scopes.
+  scopes        String[]
+  oauthClientId String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -171,10 +181,19 @@ model RefreshToken {
   @@map("refresh_tokens")
 }
 
+// Exactly one of userId/serviceAccountId is set — a personal key (owned by
+// a human User, inherits nothing extra, scoped to what was picked at
+// creation) or a service-account key (owned by a ServiceAccount, see below
+// — no human role backs it, scopes are the ONLY source of its permissions).
+// Not enforced by a DB constraint (Postgres doesn't have a clean
+// standard way to express "exactly one of two nullable FKs" without a
+// trigger); enforced at the application layer in the two distinct
+// creation routes instead.
 model ApiKey {
   id                 String       @id @default(cuid())
   orgId              String
-  userId             String
+  userId             String?
+  serviceAccountId   String?
   name               String
   keyPrefix          String
   keyHash            String       @unique
@@ -186,11 +205,41 @@ model ApiKey {
   createdAt          DateTime     @default(now())
   expiresAt          DateTime?
 
-  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user           User?           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  serviceAccount ServiceAccount? @relation(fields: [serviceAccountId], references: [id], onDelete: Cascade)
 
   @@index([orgId])
   @@map("api_keys")
+}
+
+// A machine identity, not a human — for CI/CD pipelines and backend
+// integrations. Scopes on its API keys are explicit at creation time,
+// never inherited from a role the way a human User's keys can draw on
+// ROLE_SCOPES (see src/server/http/principal.ts) — a service account has
+// no "role" in the human sense (Principal.role is the synthetic string
+// "service_account" for these).
+//
+// Real, honest limitation: resources that model "created by a human"
+// (TrackingSession.userId, Report.userId — both FK to User, not
+// ServiceAccount) reject writes from a service-account principal with a
+// real database constraint error, not a fabricated success — a tracking
+// session inherently belongs to the person being tracked, so this isn't
+// an arbitrary gap, it's the actual domain model. Service accounts are
+// for the machine-appropriate surface: webhooks, OAuth clients, reading
+// analytics/reports, not creating sessions on a human's behalf.
+model ServiceAccount {
+  id        String       @id @default(cuid())
+  orgId     String
+  name      String
+  status    ApiKeyStatus @default(active)
+  createdAt DateTime     @default(now())
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  apiKeys      ApiKey[]
+
+  @@index([orgId])
+  @@map("service_accounts")
 }
 
 model TrackingSession {
@@ -405,4 +454,70 @@ model AuditLogEntry {
 
   @@index([orgId, createdAt])
   @@map("audit_log")
+}
+
+// Deliberately NOT a relation to Organization/User/ApiKey (unlike
+// AuditLogEntry) — a request log must still write for unauthenticated,
+// failed-auth, or post-deletion requests, and a plain nullable string id
+// never blocks on referential integrity the way a real FK relation would.
+model ApiRequestLog {
+  id         String   @id @default(cuid())
+  orgId      String?
+  userId     String?
+  apiKeyId   String?
+  method     String
+  path       String
+  statusCode Int
+  latencyMs  Int
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([orgId, createdAt])
+  @@index([path, createdAt])
+  @@map("api_request_log")
+}
+
+// This app acting as its own OAuth2 provider (RFC 6749 authorization-code
+// grant + RFC 7636 PKCE) — future-ready for third-party integrations, no
+// external identity provider dependency. Issued access/refresh tokens are
+// the same real JWTs src/server/auth/tokens.ts already produces (see its
+// `scopes` field), not a parallel token system.
+model OAuthClient {
+  id               String   @id @default(cuid())
+  orgId            String
+  name             String
+  clientId         String   @unique
+  clientSecretHash String
+  redirectUris     String[]
+  scopes           String[]
+  createdAt        DateTime @default(now())
+
+  organization       Organization             @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  authorizationCodes OAuthAuthorizationCode[]
+
+  @@index([orgId])
+  @@map("oauth_clients")
+}
+
+// Single-use, short-lived (10 min) — only the SHA-256 hash of the actual
+// code is ever stored, same discipline as ApiKey.keyHash/RefreshToken.
+model OAuthAuthorizationCode {
+  id                  String   @id @default(cuid())
+  codeHash            String   @unique
+  clientId            String
+  userId              String
+  redirectUri         String
+  scopes              String[]
+  codeChallenge       String
+  codeChallengeMethod String
+  used                Boolean  @default(false)
+  expiresAt           DateTime
+  createdAt           DateTime @default(now())
+
+  client OAuthClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  user   User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+  @@map("oauth_authorization_codes")
 }

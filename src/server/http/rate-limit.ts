@@ -1,5 +1,6 @@
 import { ApiError } from "./errors";
 import { getRedisClient } from "../redis/client";
+import { logger } from "../logging/logger";
 
 /**
  * Rate limiter, keyed per caller (API key id, user id, or IP) and per
@@ -86,10 +87,7 @@ export async function checkRateLimit(
     if (error instanceof ApiError) throw error;
     // A Redis connectivity problem — degrade to per-worker in-memory
     // limiting rather than failing every request outright.
-    console.error(
-      "[rate-limit] Redis unavailable, falling back to in-memory for this request",
-      error,
-    );
+    logger.error({ err: error }, "Redis unavailable, falling back to in-memory for this request");
     return checkRateLimitInMemory(key, opts);
   }
 }

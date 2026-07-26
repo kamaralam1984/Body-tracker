@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { logger } from "./logging/logger";
 
 /**
  * Fail-fast environment validation. Only variables the running app actually
@@ -27,7 +28,10 @@ export function getEnv(): Env {
 
   const result = envSchema.safeParse(process.env);
   if (!result.success) {
-    console.error("[env] invalid environment configuration:", result.error.flatten().fieldErrors);
+    logger.error(
+      { fieldErrors: result.error.flatten().fieldErrors },
+      "invalid environment configuration",
+    );
     throw new Error("Invalid environment configuration — see logged field errors above.");
   }
 
@@ -35,9 +39,7 @@ export function getEnv(): Env {
     result.data.NODE_ENV === "production" &&
     result.data.BTK_JWT_SECRET.startsWith("dev-only-insecure")
   ) {
-    console.error(
-      "[env] BTK_JWT_SECRET is still the development default in a production environment.",
-    );
+    logger.error("BTK_JWT_SECRET is still the development default in a production environment");
     throw new Error(
       "Refusing to start in production with the default BTK_JWT_SECRET. Set a real secret.",
     );

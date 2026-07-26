@@ -9,6 +9,8 @@ import { trackingPaths } from "@/server/openapi/paths/tracking";
 import { analyticsPaths } from "@/server/openapi/paths/analytics";
 import { reportsPaths } from "@/server/openapi/paths/reports";
 import { webhooksPaths } from "@/server/openapi/paths/webhooks";
+import { oauthPaths } from "@/server/openapi/paths/oauth";
+import { serviceAccountsPaths } from "@/server/openapi/paths/service-accounts";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +24,8 @@ export function buildOpenApiDocument() {
     analyticsPaths,
     reportsPaths,
     webhooksPaths,
+    oauthPaths,
+    serviceAccountsPaths,
   );
 
   // Importing every path fragment above runs each one's Zod schema
