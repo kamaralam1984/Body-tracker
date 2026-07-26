@@ -40,6 +40,7 @@ import {
   HandAnalyticsCard,
   LiveInsightsPanel,
   LiveTimeline,
+  ObjectDetectionCard,
   PoseAnalyticsCard,
   RecordingExportPanel,
   RenderModeSelector,
@@ -351,6 +352,7 @@ function CameraPageContent({
                   <FaceAnalyticsCard />
                   <HandAnalyticsCard />
                   <PoseAnalyticsCard />
+                  <ObjectDetectionCard />
                 </div>
               </AccordionContent>
             </AccordionItem>

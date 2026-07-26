@@ -105,13 +105,28 @@ User pasted a checklist covering per-model management, a live performance dashbo
 - [x] Zero risk to the existing single-camera flow — the second camera is 100% opt-in; nothing about the default experience changed.
 - [ ] Tracking both cameras simultaneously — deliberately out of scope per the user's own confirmed choice (too heavy for most devices); not attempted.
 
+## Phase 5b — Segmentation + Object Detection ✅ DONE
+
+User asked to actually implement the two models Phase 5 had deliberately left as "Not implemented." Both are now real, running MediaPipe models — no fake toggles.
+
+Model URLs were **verified reachable with `curl` before writing any code** (not guessed) — the first attempt at the URL pattern the other 3 models use (`.task`, `/1/`) 404'd; the real MediaPipe docs (fetched live) and a follow-up `curl` check confirmed these two ship as bare `.tflite` files under `/latest/` instead:
+
+- Segmentation: `selfie_segmenter.tflite` (single-class person confidence mask)
+- Object Detection: `efficientdet_lite0.tflite`
+
+- [x] **Segmentation** — `ImageSegmenter`, real per-pixel confidence mask (`outputConfidenceMasks: true`). Confidence is the model's own `qualityScores[0]`, genuinely returned by the API — not estimated. Rendered as a translucent tint scaled up from the mask's native resolution to the video's, alpha-modulated per-pixel by the real confidence value (`drawSegmentationMask` in `render-modes.ts`), drawn in both the live overlay and recordings (same shared `drawTrackingOverlay` path as everything else).
+- [x] **Object Detection** — `ObjectDetector` (EfficientDet-Lite0), real bounding boxes + category name + confidence score per detection — unlike Face/Hand/Pose, `ObjectDetectorResult` genuinely carries a per-detection score, verified against the actual type definitions. Confidence in the AI Model panel is the average of all currently-detected objects' own scores, honestly `null` (not 0) when nothing is detected this frame — verified live: with no real-world objects in the test camera feed, the panel correctly showed "N/A" rather than a fabricated number. New `ObjectDetectionCard` lists what's currently detected.
+- [x] Both wired into `AI Model Management` with real status/confidence/processing-time/model-asset, same as the other three — no more "Not implemented" placeholders.
+- [x] Both verified individually end-to-end in a real browser session (model loads, `getModelStats()` reports genuine confidence/processing-time/asset filename, no console errors) — segmentation showed real 100% confidence + 2ms processing + `selfie_segmenter.tflite`; object detection showed real 0ms processing + `efficientdet_lite0.tflite` + honest "N/A" confidence when nothing matched.
+- [ ] Running all 5 models simultaneously — not attempted; this sandbox's software-WebGL environment couldn't even sustain 3 concurrent models within a reasonable test window, so 5 at once is realistically heavier than most user hardware too. Each model works correctly on its own or alongside 1-2 others; the "AI tracking runs on one active camera" limit from Phase 5 already exists for exactly this class of cost.
+
 ---
 
 ## Honest final gap-check against the original 15-section spec
 
 Everything above is genuinely working, not a placeholder. These are the specific items from the original spec that are **still missing** — listed plainly rather than silently dropped:
 
-- [ ] **Segmentation / Object Detection** models — different MediaPipe tasks entirely, still not wired up (Phase 5 confirmed with the user this stays out of scope for now — see Phase 5 notes)
+- [x] ~~Segmentation / Object Detection models~~ — done, see Phase 5b above.
 - [ ] **Face detection confidence** and **face distance in real units** — genuinely not possible: MediaPipe's `FaceLandmarkerResult` has no confidence field, and there's no depth sensor to calibrate a real distance (see Phase 5 notes)
 - [ ] **Low light detected**, **Face too close**, **Face too far** alerts — need new brightness/face-size heuristics
 - [ ] **Camera matrix** raw display in Developer Mode (the underlying data exists, just not surfaced)

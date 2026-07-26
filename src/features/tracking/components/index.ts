@@ -1,5 +1,6 @@
 export * from "./ai-model-management-panel";
 export * from "./live-performance-dashboard";
+export * from "./object-detection-card";
 export * from "./tracking-canvas";
 export * from "./tracking-empty-states";
 export * from "./tracking-legend";

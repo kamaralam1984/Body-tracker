@@ -42,6 +42,10 @@ export function extrapolateTrackingFrame(
     hands: extrapolateHands(prev.hands, curr.hands, a),
     pose: extrapolatePose(prev.pose, curr.pose, a),
     faceCount: curr.faceCount,
+    // Not extrapolated: a segmentation mask/detected-object box snapping to
+    // the latest real frame reads fine, unlike sparse landmark points.
+    segmentation: curr.segmentation,
+    objects: curr.objects,
   };
 }
 

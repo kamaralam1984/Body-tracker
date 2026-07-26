@@ -24,10 +24,18 @@ import {
   type TrackingStatus,
 } from "../types";
 
+const EMPTY_MODEL_STAT = {
+  status: "off",
+  confidence: null,
+  processingTimeMs: 0,
+  modelAsset: null,
+} as const;
 const EMPTY_MODELS_STATS: ModelsStats = {
-  face: { status: "off", confidence: null, processingTimeMs: 0, modelAsset: null },
-  hand: { status: "off", confidence: null, processingTimeMs: 0, modelAsset: null },
-  pose: { status: "off", confidence: null, processingTimeMs: 0, modelAsset: null },
+  face: EMPTY_MODEL_STAT,
+  hand: EMPTY_MODEL_STAT,
+  pose: EMPTY_MODEL_STAT,
+  segmentation: EMPTY_MODEL_STAT,
+  objectDetection: EMPTY_MODEL_STAT,
 };
 
 export interface UseBodyTrackingOptions {

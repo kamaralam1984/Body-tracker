@@ -5,7 +5,7 @@
  * and the render routines that consume this module's output.
  */
 
-export type TrackingMode = "face" | "hand" | "pose";
+export type TrackingMode = "face" | "hand" | "pose" | "segmentation" | "object-detection";
 
 /**
  * User-facing tracking quality/lifecycle. This is the ONLY vocabulary the UI
@@ -82,6 +82,27 @@ export interface PoseTrackingResult {
   segments: [TrackingPoint, TrackingPoint][];
 }
 
+/**
+ * Real per-pixel confidence mask from MediaPipe's selfie segmenter — one
+ * float per pixel (0-1, likelihood that pixel is "person"), at the model's
+ * own output resolution (typically far smaller than the camera frame, e.g.
+ * 256x256), not the video's resolution. Renderers scale it up.
+ */
+export interface SegmentationResult {
+  maskWidth: number;
+  maskHeight: number;
+  confidenceMask: Float32Array;
+}
+
+/** One real detected object — MediaPipe's ObjectDetector genuinely returns a category name + confidence score per detection (unlike Face/Hand/Pose, whose result types carry no such field). */
+export interface DetectedObject {
+  categoryName: string;
+  /** Real 0-1 confidence from the model, not derived/estimated. */
+  score: number;
+  /** Normalized 0-1 (fraction of frame width/height), matching every other coordinate in this module — converted from the model's native pixel coordinates using the actual video dimensions. */
+  boundingBox: { x: number; y: number; width: number; height: number };
+}
+
 export interface TrackingFrame {
   timestampMs: number;
   face: FaceTrackingResult | null;
@@ -94,6 +115,8 @@ export interface TrackingFrame {
    * independent per-person analytics.
    */
   faceCount: number;
+  segmentation: SegmentationResult | null;
+  objects: DetectedObject[];
 }
 
 export interface TrackingConfig {
@@ -141,7 +164,7 @@ export interface ModelStat {
   confidence: number | null;
   /** Rolling average of real `performance.now()` deltas around this model's own `detectForVideo()` call — distinct from the other models' time in the same frame. */
   processingTimeMs: number;
-  /** The actual `.task` model asset file currently loaded — a real identifier, not a fabricated semantic version (MediaPipe doesn't version individual models beyond the shared Tasks Vision runtime). */
+  /** The actual model asset file currently loaded — a real identifier, not a fabricated semantic version (MediaPipe doesn't version individual models beyond the shared Tasks Vision runtime). */
   modelAsset: string | null;
 }
 
@@ -149,6 +172,8 @@ export interface ModelsStats {
   face: ModelStat;
   hand: ModelStat;
   pose: ModelStat;
+  segmentation: ModelStat;
+  objectDetection: ModelStat;
 }
 
 /** Face landmark connection groups, keyed the same as `FaceContourName`, for renderers to draw. */

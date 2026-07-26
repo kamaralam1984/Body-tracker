@@ -187,6 +187,87 @@ export function drawConfidenceOverlay(
   }
 }
 
+// Reused across frames/calls rather than allocated fresh each time (this
+// runs at detection rate, up to ~30fps) — resized only when the mask's own
+// resolution changes, which it never does mid-session.
+let maskScratchCanvas: HTMLCanvasElement | null = null;
+
+/**
+ * Renders the real per-pixel confidence mask as a translucent tint —
+ * `fillStyle` takes the design system's color directly (oklch/color-mix
+ * strings work natively, see resolve-tracking-colors.ts's header comment),
+ * then a `destination-in` composite modulates each pixel's alpha by the
+ * mask's own confidence value, so opacity genuinely tracks the model's
+ * output instead of being a flat highlight.
+ */
+export function drawSegmentationMask(
+  ctx: CanvasRenderingContext2D,
+  frame: TrackingFrame,
+  width: number,
+  height: number,
+  colors: TrackingColors,
+): void {
+  const segmentation = frame.segmentation;
+  if (!segmentation) return;
+  const { maskWidth, maskHeight, confidenceMask } = segmentation;
+
+  if (!maskScratchCanvas) maskScratchCanvas = document.createElement("canvas");
+  if (maskScratchCanvas.width !== maskWidth || maskScratchCanvas.height !== maskHeight) {
+    maskScratchCanvas.width = maskWidth;
+    maskScratchCanvas.height = maskHeight;
+  }
+  const maskCtx = maskScratchCanvas.getContext("2d");
+  if (!maskCtx) return;
+
+  maskCtx.globalCompositeOperation = "source-over";
+  maskCtx.fillStyle = colors.segmentationTint;
+  maskCtx.fillRect(0, 0, maskWidth, maskHeight);
+
+  const alphaLayer = maskCtx.createImageData(maskWidth, maskHeight);
+  for (let i = 0; i < confidenceMask.length; i++) {
+    const alpha = Math.round(Math.min(1, Math.max(0, confidenceMask[i]!)) * 255);
+    const offset = i * 4;
+    alphaLayer.data[offset] = 255;
+    alphaLayer.data[offset + 1] = 255;
+    alphaLayer.data[offset + 2] = 255;
+    alphaLayer.data[offset + 3] = alpha;
+  }
+  maskCtx.globalCompositeOperation = "destination-in";
+  maskCtx.putImageData(alphaLayer, 0, 0);
+
+  ctx.drawImage(maskScratchCanvas, 0, 0, maskWidth, maskHeight, 0, 0, width, height);
+}
+
+/** Real bounding boxes + category label + confidence % — genuinely from `ObjectDetectorResult`, not derived/estimated (unlike Face/Hand/Pose, which carry no per-detection score at all). */
+export function drawObjectDetections(
+  ctx: CanvasRenderingContext2D,
+  frame: TrackingFrame,
+  width: number,
+  height: number,
+  colors: TrackingColors,
+): void {
+  if (frame.objects.length === 0) return;
+  ctx.lineWidth = 2;
+  ctx.font = LABEL_FONT;
+
+  for (const object of frame.objects) {
+    const x = object.boundingBox.x * width;
+    const y = object.boundingBox.y * height;
+    const w = object.boundingBox.width * width;
+    const h = object.boundingBox.height * height;
+
+    ctx.strokeStyle = colors.objectDetection.line;
+    ctx.strokeRect(x, y, w, h);
+
+    const label = `${object.categoryName} ${Math.round(object.score * 100)}%`;
+    const labelWidth = ctx.measureText(label).width + 6;
+    ctx.fillStyle = colors.objectDetection.point;
+    ctx.fillRect(x, y - 14 < 0 ? y : y - 14, labelWidth, 14);
+    ctx.fillStyle = "white";
+    ctx.fillText(label, x + 3, (y - 14 < 0 ? y : y - 14) + 10);
+  }
+}
+
 /**
  * The one place that dispatches "which render mode draws what" — shared by
  * the live on-screen `TrackingCanvas` and the recording composite canvas
@@ -202,9 +283,15 @@ export function drawTrackingOverlay(
   height: number,
   colors: TrackingColors,
 ): void {
+  if (renderMode === "camera-only") return;
+
+  // Independent of the face/hand/pose render-mode switch below — drawn
+  // whenever their respective model is on, regardless of which of
+  // skeleton/wireframe/etc is selected for face/hand/pose.
+  drawSegmentationMask(ctx, frame, width, height, colors);
+  drawObjectDetections(ctx, frame, width, height, colors);
+
   switch (renderMode) {
-    case "camera-only":
-      break;
     case "wireframe":
       drawWireframe(ctx, frame, width, height, colors);
       break;

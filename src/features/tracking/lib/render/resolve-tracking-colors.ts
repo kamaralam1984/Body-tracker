@@ -36,6 +36,10 @@ export interface TrackingColors {
   /** Fill color for emphasized fingertip points — a touch brighter/larger. */
   handTip: TrackingColorPair;
   pose: TrackingColorPair;
+  /** Translucent fill for the segmentation mask overlay — reuses the pose (emerald) hue, "subject highlighted" reads naturally. */
+  segmentationTint: string;
+  /** Box stroke + label background for detected objects. */
+  objectDetection: TrackingColorPair;
 }
 
 const LINE_ALPHA = 68;
@@ -64,6 +68,7 @@ export function resolveTrackingColors(): TrackingColors {
   const accentBright = readCssVar("--color-accent-400", "oklch(0.700 0.088 258)");
   const info = readCssVar("--color-info", "oklch(0.60 0.11 235)");
   const success = readCssVar("--color-success", "oklch(0.60 0.11 152)");
+  const warning = readCssVar("--color-warning", "oklch(0.75 0.15 80)");
 
   return {
     face: toPair(accent),
@@ -71,5 +76,7 @@ export function resolveTrackingColors(): TrackingColors {
     hand: toPair(info),
     handTip: toPair(info, LINE_ALPHA, TIP_ALPHA),
     pose: toPair(success),
+    segmentationTint: `color-mix(in oklch, ${success} 35%, transparent)`,
+    objectDetection: toPair(warning),
   };
 }

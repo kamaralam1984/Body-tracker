@@ -18,7 +18,7 @@
  * <AIModelManagementPanel />
  */
 
-import { Hand, PersonStanding, ScanFace, Sparkles } from "lucide-react";
+import { Boxes, Hand, PersonStanding, ScanFace, Scan, Sparkles } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -171,33 +171,22 @@ export function AIModelManagementPanel({ className }: { className?: string }) {
           onToggle={() => handleToggle("pose")}
         />
 
-        <div className="border-border-subtle flex flex-col gap-2.5 border-b pb-4 last:border-0 last:pb-0">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <span className="text-foreground text-sm font-medium">Segmentation</span>
-              <Badge variant="neutral">Not implemented</Badge>
-            </div>
-            <Switch checked={false} disabled aria-label="Segmentation (not implemented)" />
-          </div>
-          <p className="text-muted-foreground -mt-1 text-xs">
-            Would need MediaPipe&apos;s ImageSegmenter, a 4th real-time model on top of the 3
-            already running — not wired up in this app.
-          </p>
-        </div>
-
-        <div className="flex flex-col gap-2.5">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <span className="text-foreground text-sm font-medium">Object Detection</span>
-              <Badge variant="neutral">Not implemented</Badge>
-            </div>
-            <Switch checked={false} disabled aria-label="Object detection (not implemented)" />
-          </div>
-          <p className="text-muted-foreground -mt-1 text-xs">
-            Would need MediaPipe&apos;s ObjectDetector, a separate real-time model — not wired up in
-            this app.
-          </p>
-        </div>
+        <ModelRow
+          label="Segmentation"
+          icon={Scan}
+          stat={modelsStats.segmentation}
+          enabled={config.modes.has("segmentation")}
+          onToggle={() => handleToggle("segmentation")}
+          note="Real per-pixel person/background mask (MediaPipe's selfie segmenter) — confidence is the model's own average quality score across the mask, not estimated. A 4th concurrent model: heavier on CPU/GPU than face/hand/pose alone."
+        />
+        <ModelRow
+          label="Object Detection"
+          icon={Boxes}
+          stat={modelsStats.objectDetection}
+          enabled={config.modes.has("object-detection")}
+          onToggle={() => handleToggle("object-detection")}
+          note="Real bounding boxes + category + confidence per object (MediaPipe's EfficientDet-Lite0) — genuinely from the model, unlike Face/Hand/Pose which report no per-detection score at all. A 5th concurrent model: heaviest of the five to run alongside the others."
+        />
 
         <div className="border-border-subtle flex items-center justify-between gap-4 border-t pt-3">
           <Label className="text-xs font-normal">Runtime</Label>

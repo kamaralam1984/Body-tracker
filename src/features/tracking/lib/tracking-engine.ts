@@ -14,8 +14,12 @@ import type {
   FaceLandmarkerResult,
   HandLandmarker,
   HandLandmarkerResult,
+  ImageSegmenter,
+  ImageSegmenterResult,
   Matrix,
   NormalizedLandmark,
+  ObjectDetector,
+  ObjectDetectorResult,
   PoseLandmarker,
   PoseLandmarkerResult,
 } from "@mediapipe/tasks-vision";
@@ -23,6 +27,7 @@ import { LandmarkSmoother } from "./one-euro-filter";
 import {
   DEFAULT_TRACKING_CONFIG,
   FACE_CONTOUR_NAMES,
+  type DetectedObject,
   type FaceContour,
   type FaceContourName,
   type FaceTrackingResult,
@@ -30,6 +35,7 @@ import {
   type ModelStat,
   type ModelsStats,
   type PoseTrackingResult,
+  type SegmentationResult,
   type TrackingConfig,
   type TrackingFrame,
   type TrackingPoint,
@@ -48,6 +54,8 @@ type VisionModule = typeof import("@mediapipe/tasks-vision");
 type FaceLandmarkerInstance = FaceLandmarker;
 type HandLandmarkerInstance = HandLandmarker;
 type PoseLandmarkerInstance = PoseLandmarker;
+type ImageSegmenterInstance = ImageSegmenter;
+type ObjectDetectorInstance = ObjectDetector;
 type WasmFileset = Awaited<ReturnType<VisionModule["FilesetResolver"]["forVisionTasks"]>>;
 
 const MEDIAPIPE_VERSION = "0.10.35"; // keep in sync with the installed @mediapipe/tasks-vision version
@@ -63,6 +71,13 @@ const MODEL_URLS = {
     accurate:
       "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_heavy/float16/1/pose_landmarker_heavy.task",
   },
+  // Both verified reachable directly (curl) before wiring in — unlike the
+  // three landmarkers above, MediaPipe ships these two as bare `.tflite`
+  // files rather than the bundled `.task` format.
+  segmentation:
+    "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite",
+  objectDetection:
+    "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/latest/efficientdet_lite0.tflite",
 } as const;
 
 // Detection/presence/tracking confidence floor for all three landmarkers.
@@ -74,6 +89,11 @@ const MODEL_URLS = {
 // so a higher floor directly fixes both false-positive lines and jitter,
 // since low-confidence, noisy candidate detections get rejected up front.
 const MIN_CONFIDENCE = 0.65;
+
+// Bounds how many objects a single frame ever reports — a real cap on the
+// model's own `maxResults` option, not post-hoc truncation, so it also
+// bounds inference cost per frame.
+const OBJECT_DETECTION_MAX_RESULTS = 10;
 
 // Cap on how many faces the model will report at all (see numFaces below) —
 // only used to derive `faceCount` for the "multiple people detected" alert.
@@ -241,6 +261,8 @@ export class TrackingEngine {
   private faceLandmarker: FaceLandmarkerInstance | null = null;
   private handLandmarker: HandLandmarkerInstance | null = null;
   private poseLandmarker: PoseLandmarkerInstance | null = null;
+  private imageSegmenter: ImageSegmenterInstance | null = null;
+  private objectDetector: ObjectDetectorInstance | null = null;
 
   private faceContourConnections: Record<FaceContourName, Connection[]> | null = null;
   private handConnections: Connection[] = [];
@@ -263,8 +285,18 @@ export class TrackingEngine {
   private faceProcessingMs = 0;
   private handProcessingMs = 0;
   private poseProcessingMs = 0;
+  private segmentationProcessingMs = 0;
+  private objectDetectionProcessingMs = 0;
   private handConfidence: number | null = null;
   private poseConfidence: number | null = null;
+  // Real average of ImageSegmenter's own `qualityScores` (per-category
+  // confidence) — pose's average-visibility, hand's average handedness
+  // score, and this all follow the same "average whatever real per-frame
+  // confidence signal the model actually returns" pattern.
+  private segmentationConfidence: number | null = null;
+  // Real average of every currently-detected object's own score — `null`
+  // when nothing is detected this frame, never a fabricated 0.
+  private objectDetectionConfidence: number | null = null;
 
   constructor(config: TrackingConfig = DEFAULT_TRACKING_CONFIG) {
     this.config = config;
@@ -357,6 +389,30 @@ export class TrackingEngine {
       this.poseLandmarker = null;
       this.poseSmoother.reset();
     }
+
+    if (modes.has("segmentation") && !this.imageSegmenter) {
+      this.imageSegmenter = await this.vision.ImageSegmenter.createFromOptions(this.fileset, {
+        baseOptions: { modelAssetPath: MODEL_URLS.segmentation, delegate: "GPU" },
+        runningMode: "VIDEO",
+        outputConfidenceMasks: true,
+        outputCategoryMask: false,
+      });
+    } else if (!modes.has("segmentation") && this.imageSegmenter) {
+      this.imageSegmenter.close();
+      this.imageSegmenter = null;
+    }
+
+    if (modes.has("object-detection") && !this.objectDetector) {
+      this.objectDetector = await this.vision.ObjectDetector.createFromOptions(this.fileset, {
+        baseOptions: { modelAssetPath: MODEL_URLS.objectDetection, delegate: "GPU" },
+        runningMode: "VIDEO",
+        scoreThreshold: MIN_CONFIDENCE,
+        maxResults: OBJECT_DETECTION_MAX_RESULTS,
+      });
+    } else if (!modes.has("object-detection") && this.objectDetector) {
+      this.objectDetector.close();
+      this.objectDetector = null;
+    }
   }
 
   async updateConfig(next: Partial<TrackingConfig>): Promise<void> {
@@ -387,6 +443,8 @@ export class TrackingEngine {
     let hands: HandTrackingResult[] = [];
     let pose: PoseTrackingResult | null = null;
     let faceCount = 0;
+    let segmentation: SegmentationResult | null = null;
+    let objects: DetectedObject[] = [];
     let anyEnabled = false;
     let anyDetected = false;
 
@@ -436,6 +494,26 @@ export class TrackingEngine {
         pose = this.processPose(result, timestampMs);
         if (pose) anyDetected = true;
       }
+      if (this.imageSegmenter) {
+        anyEnabled = true;
+        const start = performance.now();
+        const result = this.imageSegmenter.segmentForVideo(video, timestampMs);
+        this.segmentationProcessingMs = performance.now() - start;
+        this.segmentationConfidence = result.qualityScores?.[0] ?? null;
+        segmentation = this.processSegmentation(result);
+        result.close();
+        if (segmentation) anyDetected = true;
+      }
+      if (this.objectDetector) {
+        anyEnabled = true;
+        const start = performance.now();
+        const result = this.objectDetector.detectForVideo(video, timestampMs);
+        this.objectDetectionProcessingMs = performance.now() - start;
+        objects = this.processObjectDetection(result, video.videoWidth, video.videoHeight);
+        this.objectDetectionConfidence =
+          objects.length > 0 ? objects.reduce((sum, o) => sum + o.score, 0) / objects.length : null;
+        if (objects.length > 0) anyDetected = true;
+      }
       this.statusOverride = null;
       this.reinitAttempts = 0;
     } catch {
@@ -456,7 +534,7 @@ export class TrackingEngine {
       }
     }
 
-    return { timestampMs, face, hands, pose, faceCount };
+    return { timestampMs, face, hands, pose, faceCount, segmentation, objects };
   }
 
   private handleDetectionError(): void {
@@ -469,9 +547,13 @@ export class TrackingEngine {
     this.faceLandmarker?.close();
     this.handLandmarker?.close();
     this.poseLandmarker?.close();
+    this.imageSegmenter?.close();
+    this.objectDetector?.close();
     this.faceLandmarker = null;
     this.handLandmarker = null;
     this.poseLandmarker = null;
+    this.imageSegmenter = null;
+    this.objectDetector = null;
     void this.syncLandmarkers();
   }
 
@@ -540,6 +622,20 @@ export class TrackingEngine {
         this.poseConfidence,
         this.poseLandmarker ? assetFilename(MODEL_URLS.pose[this.config.quality]) : null,
       ),
+      segmentation: statOf(
+        this.config.modes.has("segmentation"),
+        this.imageSegmenter !== null,
+        this.segmentationProcessingMs,
+        this.segmentationConfidence,
+        this.imageSegmenter ? assetFilename(MODEL_URLS.segmentation) : null,
+      ),
+      objectDetection: statOf(
+        this.config.modes.has("object-detection"),
+        this.objectDetector !== null,
+        this.objectDetectionProcessingMs,
+        this.objectDetectionConfidence,
+        this.objectDetector ? assetFilename(MODEL_URLS.objectDetection) : null,
+      ),
     };
   }
 
@@ -558,9 +654,13 @@ export class TrackingEngine {
     this.faceLandmarker?.close();
     this.handLandmarker?.close();
     this.poseLandmarker?.close();
+    this.imageSegmenter?.close();
+    this.objectDetector?.close();
     this.faceLandmarker = null;
     this.handLandmarker = null;
     this.poseLandmarker = null;
+    this.imageSegmenter = null;
+    this.objectDetector = null;
     this.faceSmoother.reset();
     this.handSmoother.reset();
     this.poseSmoother.reset();
@@ -705,6 +805,43 @@ export class TrackingEngine {
     }
 
     return { points: smoothed, segments: segmentsFromConnections(smoothed, this.poseConnections) };
+  }
+
+  /** Copies the real per-pixel confidence mask out to a plain Float32Array (the MPMask itself gets `.close()`d by the caller right after, per MediaPipe's own lifetime rules) so it safely outlives this frame. */
+  private processSegmentation(result: ImageSegmenterResult): SegmentationResult | null {
+    const mask = result.confidenceMasks?.[0];
+    if (!mask) return null;
+    return {
+      maskWidth: mask.width,
+      maskHeight: mask.height,
+      confidenceMask: new Float32Array(mask.getAsFloat32Array()),
+    };
+  }
+
+  /** Converts MediaPipe's native pixel-coordinate bounding boxes to this module's 0-1 normalized convention, using the actual video frame dimensions. */
+  private processObjectDetection(
+    result: ObjectDetectorResult,
+    videoWidth: number,
+    videoHeight: number,
+  ): DetectedObject[] {
+    if (!videoWidth || !videoHeight) return [];
+    const out: DetectedObject[] = [];
+    for (const detection of result.detections) {
+      const box = detection.boundingBox;
+      const category = detection.categories[0];
+      if (!box || !category) continue;
+      out.push({
+        categoryName: category.categoryName || "Object",
+        score: category.score,
+        boundingBox: {
+          x: box.originX / videoWidth,
+          y: box.originY / videoHeight,
+          width: box.width / videoWidth,
+          height: box.height / videoHeight,
+        },
+      });
+    }
+    return out;
   }
 }
 
