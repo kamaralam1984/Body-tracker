@@ -7,6 +7,8 @@ import { ApiError, notFound } from "@/server/http/errors";
 import { writeAudit } from "@/server/http/audit";
 import { generateApiKey } from "@/server/auth/api-keys";
 import { sanitizeApiKey } from "@/server/services/auth-service";
+import { notifyUser } from "@/server/services/notifications-service";
+import { logger } from "@/server/logging/logger";
 
 export const dynamic = "force-dynamic";
 
@@ -51,7 +53,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       throw new ApiError("conflict", "Cannot rotate a key that isn't active.");
     }
 
-    const { plaintext, prefix, hash } = generateApiKey();
+    const { plaintext, prefix, hash } = generateApiKey({
+      environment: existing.environment as "test" | "live",
+      keyType: existing.keyType as "secret" | "publishable",
+    });
     const gracePeriodEndsAt = new Date(Date.now() + graceHours * 60 * 60 * 1000);
 
     const [, newKey] = await prisma.$transaction([
@@ -90,6 +95,21 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         gracePeriodEndsAt: gracePeriodEndsAt.toISOString(),
       },
     });
+
+    if (newKey.userId) {
+      notifyUser({
+        orgId: newKey.orgId,
+        userId: newKey.userId,
+        type: "api_key.rotated",
+        title: `API key "${newKey.name}" was rotated`,
+        body: `A new secret was issued for "${newKey.name}". The old key keeps working until ${gracePeriodEndsAt.toISOString()}, then it's automatically revoked.`,
+        metadata: {
+          newKeyId: newKey.id,
+          oldKeyId: existing.id,
+          gracePeriodEndsAt: gracePeriodEndsAt.toISOString(),
+        },
+      }).catch((error) => logger.error({ err: error }, "failed to notify api-key.rotated"));
+    }
 
     return ok(
       {

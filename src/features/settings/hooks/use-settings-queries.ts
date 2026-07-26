@@ -52,6 +52,8 @@ export interface CreateApiKeyInput {
   expiresAt?: string;
   allowedIps?: string[];
   allowedOrigins?: string[];
+  environment?: "live" | "test";
+  keyType?: "secret" | "publishable";
 }
 
 export type CreateApiKeyResult = PersonalApiKey & { apiKey: string };
@@ -104,6 +106,35 @@ export function usePatchPersonalApiKeyScopesMutation() {
         body: JSON.stringify({ scopes }),
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: API_KEYS_QUERY_KEY }),
+  });
+}
+
+export interface SecurityCenterKeySummary {
+  id: string;
+  name: string;
+  keyPrefix: string;
+}
+
+export interface SecurityCenterOverview {
+  inactiveDays: number;
+  nearExpirationDays: number;
+  inactiveKeys: (SecurityCenterKeySummary & { lastUsedAt: string | null; createdAt: string })[];
+  expiredKeys: (SecurityCenterKeySummary & { expiresAt: string })[];
+  nearExpirationKeys: (SecurityCenterKeySummary & { expiresAt: string })[];
+  compromisedKeys: SecurityCenterKeySummary[];
+  failedAuthSpikes: {
+    apiKeyId: string | null;
+    count: number;
+    distinctIps: number;
+    lastAttemptAt: string;
+  }[];
+}
+
+/** Real Security Center data (`/api/v1/security-center/overview`) — every section here is a genuine query, not a mocked dashboard. */
+export function useSecurityCenterQuery() {
+  return useQuery({
+    queryKey: ["settings", "security-center"],
+    queryFn: () => apiFetchJson<SecurityCenterOverview>("/api/v1/security-center/overview"),
   });
 }
 

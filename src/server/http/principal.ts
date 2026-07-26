@@ -75,6 +75,14 @@ export async function resolvePrincipal(request: Request): Promise<Principal> {
     const hash = hashApiKey(plaintext);
     const key = await prisma.apiKey.findUnique({ where: { keyHash: hash } });
     if (!key) throw new ApiError("invalid_api_key", "The provided API key is invalid.");
+    // Attributed to the org as soon as a real key row is found — even
+    // though the request may still fail below (revoked/expired/IP-blocked/
+    // etc.) — so `ApiRequestLog` can attribute a failed attempt to the
+    // right org (see the Security Center's failed-auth-spike detection,
+    // `/api/v1/security-center/overview`). A genuinely unknown/invalid key
+    // (no matching row at all) correctly stays unattributed — there's no
+    // real org to blame it on.
+    setRequestPrincipal({ orgId: key.orgId, apiKeyId: key.id });
     if (key.status !== "active")
       throw new ApiError("revoked_key", "This API key has been revoked.");
     if (key.expiresAt && key.expiresAt.getTime() < Date.now())

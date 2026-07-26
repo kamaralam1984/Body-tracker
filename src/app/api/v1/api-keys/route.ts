@@ -9,9 +9,11 @@ import { parseJsonBody, parseQuery } from "@/server/http/validate";
 import { paginate } from "@/server/http/pagination";
 import { parseSort, searchWhere } from "@/server/http/sort";
 import { writeAudit } from "@/server/http/audit";
-import { generateApiKey } from "@/server/auth/api-keys";
+import { generateApiKey, isScopeGrantableToPublishableKey } from "@/server/auth/api-keys";
 import { ALL_SCOPES, type Scope } from "@/server/db/entities";
 import { sanitizeApiKey } from "@/server/services/auth-service";
+import { notifyUser } from "@/server/services/notifications-service";
+import { logger } from "@/server/logging/logger";
 
 export const dynamic = "force-dynamic";
 
@@ -84,6 +86,12 @@ export const createSchema = z.object({
     .refine((arr) => arr.every(isValidOriginPattern), {
       message: "allowedOrigins entries must each be a hostname, optionally prefixed with '*.'",
     }),
+  // Stripe-style test/live separation — real key-prefix encoding
+  // (sk_live_/sk_test_/pk_live_/pk_test_), not full data-environment
+  // isolation (this app has one real database, not separate test/live
+  // datasets — see INCOMPLETE.md for why that's explicitly out of scope).
+  environment: z.enum(["test", "live"]).default("live"),
+  keyType: z.enum(["secret", "publishable"]).default("secret"),
 });
 
 export async function POST(request: NextRequest) {
@@ -94,9 +102,17 @@ export async function POST(request: NextRequest) {
     if (body.expiresAt && new Date(body.expiresAt).getTime() <= Date.now()) {
       throw badRequest("expiresAt must be in the future");
     }
+    if (body.keyType === "publishable" && !body.scopes.every(isScopeGrantableToPublishableKey)) {
+      throw badRequest(
+        "Publishable keys can't be granted write scopes — they're meant to be safe in client-side code.",
+      );
+    }
 
     const prisma = await getPrisma();
-    const { plaintext, prefix, hash } = generateApiKey();
+    const { plaintext, prefix, hash } = generateApiKey({
+      environment: body.environment,
+      keyType: body.keyType,
+    });
 
     const key = await prisma.apiKey.create({
       data: {
@@ -113,6 +129,8 @@ export async function POST(request: NextRequest) {
         expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
         allowedIps: body.allowedIps,
         allowedOrigins: body.allowedOrigins,
+        environment: body.environment,
+        keyType: body.keyType,
       },
     });
 
@@ -123,6 +141,19 @@ export async function POST(request: NextRequest) {
       target: `api-key:${key.id}`,
       metadata: { name: key.name, scopes: key.scopes },
     });
+
+    // Only human principals map to a real `User` row — a service account
+    // acting on its own behalf has no personal inbox to notify.
+    if (!principal.serviceAccountId) {
+      notifyUser({
+        orgId: principal.orgId,
+        userId: principal.userId,
+        type: "api_key.created",
+        title: `New API key created: "${key.name}"`,
+        body: `A new ${key.environment} ${key.keyType} key "${key.name}" was created on your account.`,
+        metadata: { apiKeyId: key.id },
+      }).catch((error) => logger.error({ err: error }, "failed to notify api-key.created"));
+    }
 
     return ok(
       { apiKey: plaintext, ...sanitizeApiKey(key) },

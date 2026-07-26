@@ -8,6 +8,8 @@ import { parseJsonBody } from "@/server/http/validate";
 import { writeAudit } from "@/server/http/audit";
 import { sanitizeApiKey } from "@/server/services/auth-service";
 import { ALL_SCOPES, type Scope } from "@/server/db/entities";
+import { notifyUser } from "@/server/services/notifications-service";
+import { logger } from "@/server/logging/logger";
 
 export const dynamic = "force-dynamic";
 
@@ -62,6 +64,19 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         target: `api-key:${key.id}`,
         metadata: { before: existing.scopes, after: key.scopes },
       });
+
+      if (key.userId) {
+        notifyUser({
+          orgId: key.orgId,
+          userId: key.userId,
+          type: "api_key.permission_changed",
+          title: `Permissions changed on "${key.name}"`,
+          body: `The scopes on your API key "${key.name}" were updated.`,
+          metadata: { apiKeyId: key.id, before: existing.scopes, after: key.scopes },
+        }).catch((error) =>
+          logger.error({ err: error }, "failed to notify api-key.permission_changed"),
+        );
+      }
     }
 
     return ok(sanitizeApiKey(key), { headers: rateLimitResponseHeaders(principal) });
@@ -105,6 +120,17 @@ export async function DELETE(
       target: `api-key:${key.id}`,
       metadata: { reason: reason ?? "Manual" },
     });
+
+    if (key.userId) {
+      notifyUser({
+        orgId: key.orgId,
+        userId: key.userId,
+        type: "api_key.revoked",
+        title: `API key "${key.name}" was revoked`,
+        body: `Your API key "${key.name}" was revoked. Reason: ${reason ?? "Manual"}.`,
+        metadata: { apiKeyId: key.id, reason: reason ?? "Manual" },
+      }).catch((error) => logger.error({ err: error }, "failed to notify api-key.revoked"));
+    }
 
     return ok({ success: true }, { headers: rateLimitResponseHeaders(principal) });
   } catch (error) {

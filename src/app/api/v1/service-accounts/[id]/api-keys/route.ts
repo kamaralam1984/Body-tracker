@@ -27,6 +27,10 @@ export const createSchema = z.object({
       message: `scopes must only contain values from: ${ALL_SCOPES.join(", ")}`,
     }),
   rateLimitPerMinute: z.number().int().positive().default(120),
+  // Service-account keys are always "secret" type (never publishable —
+  // that concept doesn't apply to a machine identity's own key), but they
+  // do get the same real test/live environment labeling as personal keys.
+  environment: z.enum(["test", "live"]).default("live"),
 });
 
 async function getOrgServiceAccount(orgId: string, id: string) {
@@ -75,7 +79,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     const body = await parseJsonBody(request, createSchema);
     const prisma = await getPrisma();
-    const { plaintext, prefix, hash } = generateApiKey();
+    const { plaintext, prefix, hash } = generateApiKey({ environment: body.environment });
 
     const key = await prisma.apiKey.create({
       data: {
@@ -90,6 +94,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         requestCount: 0,
         lastUsedAt: null,
         expiresAt: null,
+        environment: body.environment,
       },
     });
 

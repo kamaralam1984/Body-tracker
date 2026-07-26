@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { Laptop, Smartphone, ShieldCheck } from "lucide-react";
+import { Laptop, Smartphone, ShieldCheck, AlertTriangle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -35,6 +35,7 @@ import {
   useBackupCodesQuery,
   useLoginHistoryQuery,
   usePasskeysQuery,
+  useSecurityCenterQuery,
 } from "@/features/settings/hooks/use-settings-queries";
 import type { Passkey } from "@/features/settings/types";
 import { SecurityMfaToggle } from "./security-mfa-toggle";
@@ -544,6 +545,179 @@ function ActiveSessionsCard() {
 }
 
 // ---------------------------------------------------------------------------
+// API key Security Center — real data from `/api/v1/security-center/overview`.
+// Every row below reflects a real query against real ApiKey/ApiRequestLog
+// rows for this org; "Compromised" is honestly manual-flag-only (the
+// revoke-reason a human chose), never a fabricated automated detection.
+// ---------------------------------------------------------------------------
+
+function SecurityCenterFindingRow({
+  keyName,
+  keyPrefix,
+  detail,
+}: {
+  keyName: string;
+  keyPrefix: string;
+  detail: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0">
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <span className="text-foreground truncate text-sm font-medium">{keyName}</span>
+        <span className="text-muted-foreground truncate font-mono text-xs">{keyPrefix}…</span>
+      </div>
+      <span className="text-muted-foreground shrink-0 text-xs">{detail}</span>
+    </div>
+  );
+}
+
+function SecurityCenterCard() {
+  const { data, isLoading } = useSecurityCenterQuery();
+
+  const findingCount =
+    (data?.inactiveKeys.length ?? 0) +
+    (data?.expiredKeys.length ?? 0) +
+    (data?.nearExpirationKeys.length ?? 0) +
+    (data?.compromisedKeys.length ?? 0) +
+    (data?.failedAuthSpikes.length ?? 0);
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <CardTitle>API key Security Center</CardTitle>
+          {!isLoading && (
+            <Badge variant={findingCount > 0 ? "warning" : "success"}>
+              {findingCount > 0
+                ? `${findingCount} finding${findingCount === 1 ? "" : "s"}`
+                : "All clear"}
+            </Badge>
+          )}
+        </div>
+        <CardDescription>
+          Inactive, expiring, and flagged API keys, plus failed authentication spikes across your
+          organization.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-5">
+        {isLoading ? (
+          <div className="flex flex-col gap-2">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-10 w-full" />
+            ))}
+          </div>
+        ) : !data || findingCount === 0 ? (
+          <p className="text-muted-foreground py-2 text-sm">
+            No issues found — no inactive, expiring, or flagged API keys, and no failed-auth spikes
+            in the last 24 hours.
+          </p>
+        ) : (
+          <>
+            {data.compromisedKeys.length > 0 && (
+              <div>
+                <p className="text-danger mb-1 flex items-center gap-1.5 text-xs font-medium">
+                  <AlertTriangle className="size-3.5" strokeWidth={2} />
+                  Flagged as compromised
+                </p>
+                <div className="divide-border-subtle flex flex-col divide-y">
+                  {data.compromisedKeys.map((key) => (
+                    <SecurityCenterFindingRow
+                      key={key.id}
+                      keyName={key.name}
+                      keyPrefix={key.keyPrefix}
+                      detail="Revoked"
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+            {data.failedAuthSpikes.length > 0 && (
+              <div>
+                <p className="text-warning-700 dark:text-warning-500 mb-1 text-xs font-medium">
+                  Failed authentication spikes (last 24h)
+                </p>
+                <div className="divide-border-subtle flex flex-col divide-y">
+                  {data.failedAuthSpikes.map((spike) => (
+                    <div
+                      key={spike.apiKeyId ?? "unknown"}
+                      className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0"
+                    >
+                      <span className="text-foreground truncate font-mono text-xs">
+                        {spike.apiKeyId ?? "unknown key"}
+                      </span>
+                      <span className="text-muted-foreground shrink-0 text-xs">
+                        {spike.count} failed attempt{spike.count === 1 ? "" : "s"} ·{" "}
+                        {spike.distinctIps} IP{spike.distinctIps === 1 ? "" : "s"} ·{" "}
+                        {formatRelativeDate(spike.lastAttemptAt)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {data.expiredKeys.length > 0 && (
+              <div>
+                <p className="text-danger mb-1 text-xs font-medium">
+                  Expired but still marked active
+                </p>
+                <div className="divide-border-subtle flex flex-col divide-y">
+                  {data.expiredKeys.map((key) => (
+                    <SecurityCenterFindingRow
+                      key={key.id}
+                      keyName={key.name}
+                      keyPrefix={key.keyPrefix}
+                      detail={`Expired ${formatRelativeDate(key.expiresAt)}`}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+            {data.nearExpirationKeys.length > 0 && (
+              <div>
+                <p className="text-muted-foreground mb-1 text-xs font-medium">
+                  Expiring within {data.nearExpirationDays} days
+                </p>
+                <div className="divide-border-subtle flex flex-col divide-y">
+                  {data.nearExpirationKeys.map((key) => (
+                    <SecurityCenterFindingRow
+                      key={key.id}
+                      keyName={key.name}
+                      keyPrefix={key.keyPrefix}
+                      detail={`Expires ${formatRelativeDate(key.expiresAt)}`}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+            {data.inactiveKeys.length > 0 && (
+              <div>
+                <p className="text-muted-foreground mb-1 text-xs font-medium">
+                  Inactive for over {data.inactiveDays} days
+                </p>
+                <div className="divide-border-subtle flex flex-col divide-y">
+                  {data.inactiveKeys.map((key) => (
+                    <SecurityCenterFindingRow
+                      key={key.id}
+                      keyName={key.name}
+                      keyPrefix={key.keyPrefix}
+                      detail={
+                        key.lastUsedAt
+                          ? `Last used ${formatRelativeDate(key.lastUsedAt)}`
+                          : "Never used"
+                      }
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Security alerts
 // ---------------------------------------------------------------------------
 
@@ -615,6 +789,7 @@ export default function SecuritySettingsPage() {
       <PasswordCard />
       <TwoFactorCard />
       <PasskeysCard />
+      <SecurityCenterCard />
       <RecoveryEmailCard />
       <LoginHistoryCard />
       <ActiveSessionsCard />

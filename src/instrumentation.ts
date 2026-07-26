@@ -16,6 +16,14 @@
  * 3. The API-key expiry/rotation-grace-period sweep
  *    (`sweepExpiredApiKeys`, see `src/server/services/api-keys-service.ts`)
  *    — same interval pattern.
+ * 4. The security-notification sweep (`sweepSecurityNotifications`, see
+ *    `src/server/services/notifications-service.ts`) — same 60s interval,
+ *    detects failed-auth spikes and repeated rate-limit hits from
+ *    `ApiRequestLog` rows already being written.
+ * 5. The near-expiration notification sweep
+ *    (`sweepNearExpirationApiKeys`) — a separate, real 24h interval (not
+ *    the 60s one) since "notify once a key is within 7 days of expiring"
+ *    only needs to run daily.
  */
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
@@ -26,6 +34,8 @@ export async function register() {
   const { logger } = await import("@/server/logging/logger");
   const { sweepFailedWebhookDeliveries } = await import("@/server/services/webhooks-service");
   const { sweepExpiredApiKeys } = await import("@/server/services/api-keys-service");
+  const { sweepSecurityNotifications, sweepNearExpirationApiKeys } =
+    await import("@/server/services/notifications-service");
 
   setInterval(() => {
     sweepFailedWebhookDeliveries().catch((error: unknown) =>
@@ -34,5 +44,17 @@ export async function register() {
     sweepExpiredApiKeys().catch((error: unknown) =>
       logger.error({ err: error }, "API key expiry sweep failed"),
     );
+    sweepSecurityNotifications().catch((error: unknown) =>
+      logger.error({ err: error }, "security notification sweep failed"),
+    );
   }, 60_000);
+
+  setInterval(
+    () => {
+      sweepNearExpirationApiKeys().catch((error: unknown) =>
+        logger.error({ err: error }, "near-expiration notification sweep failed"),
+      );
+    },
+    24 * 60 * 60 * 1000,
+  );
 }

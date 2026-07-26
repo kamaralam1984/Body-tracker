@@ -35,6 +35,12 @@ export const OPENAPI_BASE: Omit<OpenApiDocument, "paths"> = {
       name: "Service Accounts",
       description: "Machine identities for CI/CD and backend integrations",
     },
+    {
+      name: "Security Center",
+      description:
+        "Real security posture — inactive/expired/near-expiration/compromised keys, failed-auth spikes",
+    },
+    { name: "Notifications", description: "Real personal in-app notifications" },
     { name: "Platform", description: "Health, status, and platform metadata" },
   ],
   components: {

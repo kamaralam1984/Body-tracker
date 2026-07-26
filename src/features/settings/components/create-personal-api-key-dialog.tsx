@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select } from "@/components/ui/select";
 import { toast } from "@/components/ui/toast";
+import { cn } from "@/lib/utils";
 import { useSettingsStore } from "@/features/settings";
 import {
   useCreatePersonalApiKeyMutation,
@@ -27,6 +28,8 @@ import {
 import { ALL_SCOPES } from "@/server/db/entities";
 
 type ExpirationPreset = "never" | "30" | "90" | "180" | "365" | "custom";
+type Environment = "live" | "test";
+type KeyType = "secret" | "publishable";
 
 const EXPIRATION_OPTIONS = [
   { value: "never", label: "Never expires" },
@@ -35,6 +38,16 @@ const EXPIRATION_OPTIONS = [
   { value: "180", label: "180 days" },
   { value: "365", label: "365 days" },
   { value: "custom", label: "Custom date" },
+];
+
+const ENVIRONMENT_OPTIONS = [
+  { value: "live", label: "Live" },
+  { value: "test", label: "Test" },
+];
+
+const KEY_TYPE_OPTIONS = [
+  { value: "secret", label: "Secret key — server-side only" },
+  { value: "publishable", label: "Publishable key — safe for client-side code" },
 ];
 
 function expirationToIsoDate(preset: ExpirationPreset, customDate: string): string | undefined {
@@ -51,6 +64,8 @@ export function CreatePersonalApiKeyDialog() {
 
   const [name, setName] = useState("");
   const [scopes, setScopes] = useState<Set<string>>(new Set());
+  const [environment, setEnvironment] = useState<Environment>("live");
+  const [keyType, setKeyType] = useState<KeyType>("secret");
   const [expirationPreset, setExpirationPreset] = useState<ExpirationPreset>("never");
   const [customDate, setCustomDate] = useState("");
   const [createdKey, setCreatedKey] = useState<CreateApiKeyResult | null>(null);
@@ -72,9 +87,21 @@ export function CreatePersonalApiKeyDialog() {
     });
   }
 
+  function handleKeyTypeChange(next: KeyType) {
+    setKeyType(next);
+    // Publishable keys can't hold write scopes (server enforces this too —
+    // this just keeps the picker from offering a combination that would
+    // fail on submit).
+    if (next === "publishable") {
+      setScopes((prev) => new Set([...prev].filter((s) => !s.endsWith(":write"))));
+    }
+  }
+
   function reset() {
     setName("");
     setScopes(new Set());
+    setEnvironment("live");
+    setKeyType("secret");
     setExpirationPreset("never");
     setCustomDate("");
     setCreatedKey(null);
@@ -93,6 +120,8 @@ export function CreatePersonalApiKeyDialog() {
         name: name.trim(),
         scopes: Array.from(scopes),
         expiresAt: expirationToIsoDate(expirationPreset, customDate),
+        environment,
+        keyType,
       });
       setCreatedKey(result);
     } catch (error) {
@@ -193,6 +222,25 @@ export function CreatePersonalApiKeyDialog() {
               />
             </div>
 
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-foreground text-sm font-medium">Key type</label>
+                <Select
+                  options={KEY_TYPE_OPTIONS}
+                  value={keyType}
+                  onValueChange={(value) => handleKeyTypeChange(value as KeyType)}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-foreground text-sm font-medium">Environment</label>
+                <Select
+                  options={ENVIRONMENT_OPTIONS}
+                  value={environment}
+                  onValueChange={(value) => setEnvironment(value as Environment)}
+                />
+              </div>
+            </div>
+
             <div className="flex flex-col gap-1.5">
               <label className="text-foreground text-sm font-medium">Expiration</label>
               <Select
@@ -212,16 +260,32 @@ export function CreatePersonalApiKeyDialog() {
 
             <div className="flex flex-col gap-1.5">
               <label className="text-foreground text-sm font-medium">Scopes</label>
+              {keyType === "publishable" && (
+                <p className="text-muted-foreground text-xs">
+                  Publishable keys can&apos;t hold write scopes — they&apos;re meant to be safe in
+                  client-side code.
+                </p>
+              )}
               <div className="border-border grid max-h-56 grid-cols-1 gap-2 overflow-y-auto rounded-lg border p-3 sm:grid-cols-2">
-                {ALL_SCOPES.map((scope) => (
-                  <label
-                    key={scope}
-                    className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-sm"
-                  >
-                    <Checkbox checked={scopes.has(scope)} onChange={() => toggleScope(scope)} />
-                    <span className="font-mono text-xs">{scope}</span>
-                  </label>
-                ))}
+                {ALL_SCOPES.map((scope) => {
+                  const disabled = keyType === "publishable" && scope.endsWith(":write");
+                  return (
+                    <label
+                      key={scope}
+                      className={cn(
+                        "flex items-center gap-2 rounded-md px-1 py-1 text-sm",
+                        disabled ? "cursor-not-allowed opacity-40" : "cursor-pointer",
+                      )}
+                    >
+                      <Checkbox
+                        checked={scopes.has(scope)}
+                        disabled={disabled}
+                        onChange={() => toggleScope(scope)}
+                      />
+                      <span className="font-mono text-xs">{scope}</span>
+                    </label>
+                  );
+                })}
               </div>
               {scopes.size === 0 && (
                 <p className="text-muted-foreground text-xs">Select at least one scope.</p>

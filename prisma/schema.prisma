@@ -115,6 +115,7 @@ model Organization {
   auditLog              AuditLogEntry[]
   oauthClients          OAuthClient[]
   serviceAccounts       ServiceAccount[]
+  notifications         Notification[]
 
   @@map("organizations")
 }
@@ -154,6 +155,7 @@ model User {
   reports                 Report[]
   auditLogEntries         AuditLogEntry[]
   oauthAuthorizationCodes OAuthAuthorizationCode[]
+  notifications           Notification[]
 
   @@unique([orgId, email])
   @@index([orgId])
@@ -488,6 +490,29 @@ model AuditLogEntry {
 
   @@index([orgId, createdAt])
   @@map("audit_log")
+}
+
+// Real in-app notifications — always a personal resource (`userId` is
+// required, never null): system-initiated events (sweeps) only create a
+// row when the affected ApiKey has a real human owner (`ApiKey.userId`);
+// service-account-owned key events have no human to notify and are simply
+// skipped (they still surface in the Security Center's real-time queries).
+model Notification {
+  id        String   @id @default(cuid())
+  orgId     String
+  userId    String
+  type      String
+  title     String
+  body      String
+  read      Boolean  @default(false)
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read, createdAt])
+  @@map("notifications")
 }
 
 // Deliberately NOT a relation to Organization/User/ApiKey (unlike

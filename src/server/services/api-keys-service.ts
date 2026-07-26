@@ -1,5 +1,7 @@
 import { getPrisma } from "@/server/db/prisma";
 import { writeAudit } from "@/server/http/audit";
+import { notifyUser } from "@/server/services/notifications-service";
+import { logger } from "@/server/logging/logger";
 
 /**
  * Real, scheduled cleanup for time-based key lifecycle transitions —
@@ -23,11 +25,11 @@ export async function sweepExpiredApiKeys(): Promise<void> {
   const [gracePeriodExpired, keysExpired] = await Promise.all([
     prisma.apiKey.findMany({
       where: { status: "active", gracePeriodEndsAt: { lt: now } },
-      select: { id: true, orgId: true },
+      select: { id: true, orgId: true, userId: true, name: true },
     }),
     prisma.apiKey.findMany({
       where: { status: "active", expiresAt: { lt: now } },
-      select: { id: true, orgId: true },
+      select: { id: true, orgId: true, userId: true, name: true },
     }),
   ]);
 
@@ -43,6 +45,18 @@ export async function sweepExpiredApiKeys(): Promise<void> {
       target: `api-key:${key.id}`,
       metadata: { reason: "Rotation grace period ended", automatic: true },
     });
+    if (key.userId) {
+      notifyUser({
+        orgId: key.orgId,
+        userId: key.userId,
+        type: "api_key.revoked",
+        title: `Old key superseded by "${key.name}"'s rotation is now revoked`,
+        body: `The previous "${key.name}" secret's grace period ended and it has been automatically revoked.`,
+        metadata: { apiKeyId: key.id, reason: "Rotation grace period ended", automatic: true },
+      }).catch((error) =>
+        logger.error({ err: error }, "failed to notify api-key.revoked (grace period)"),
+      );
+    }
   }
 
   for (const key of keysExpired) {
@@ -57,5 +71,17 @@ export async function sweepExpiredApiKeys(): Promise<void> {
       target: `api-key:${key.id}`,
       metadata: { reason: "Expired", automatic: true },
     });
+    if (key.userId) {
+      notifyUser({
+        orgId: key.orgId,
+        userId: key.userId,
+        type: "api_key.revoked",
+        title: `API key "${key.name}" expired and was revoked`,
+        body: `Your API key "${key.name}" reached its expiration date and has been automatically revoked.`,
+        metadata: { apiKeyId: key.id, reason: "Expired", automatic: true },
+      }).catch((error) =>
+        logger.error({ err: error }, "failed to notify api-key.revoked (expired)"),
+      );
+    }
   }
 }
