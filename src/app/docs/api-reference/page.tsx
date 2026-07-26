@@ -16,21 +16,23 @@ export default function ApiReferencePage() {
         <div className="flex flex-col gap-3">
           <h1 className="text-foreground text-3xl font-bold tracking-tight">API Reference</h1>
           <p className="text-muted-foreground text-lg">
-            Complete reference for the{" "}
-            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
-              BodyTracker
-            </code>{" "}
+            Reference for the{" "}
+            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">KvlClient</code>{" "}
             class — the single entry point for the core{" "}
-            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
-              @bodytracker/sdk
-            </code>{" "}
-            package. Every constructor, method, and property is documented below with its full
-            signature, parameters, return value, and a runnable example. If you&apos;re building
-            with React, the{" "}
+            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">@kvl/sdk</code>{" "}
+            package: construction, auth, the low-level request escape hatch, middleware, and events.
+            Every real REST endpoint underneath is documented live in the{" "}
+            <a
+              href="/docs/api-explorer"
+              className="text-accent font-medium underline underline-offset-4"
+            >
+              API Explorer
+            </a>
+            . If you&apos;re building with React, the{" "}
             <a href="/docs/hooks" className="text-accent font-medium underline underline-offset-4">
               Hooks reference
             </a>{" "}
-            wraps this same class with reactive bindings.
+            wraps this same client with reactive bindings.
           </p>
         </div>
 

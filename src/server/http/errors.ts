@@ -24,7 +24,12 @@ export type ApiErrorCode =
   // cross-org /api/v1/platform/* routes are available to them.
   | "platform_admin_required";
 
-const STATUS_BY_CODE: Record<ApiErrorCode, number> = {
+// Exported (not just used internally) so the SDK's codegen script
+// (scripts/generate-sdk-openapi-schema.mjs) can enumerate every real
+// error code at runtime — a TS union type alone can't be introspected
+// by a plain Node script, but this real, already-exhaustive runtime
+// object can.
+export const STATUS_BY_CODE: Record<ApiErrorCode, number> = {
   bad_request: 400,
   validation_error: 422,
   unauthorized: 401,

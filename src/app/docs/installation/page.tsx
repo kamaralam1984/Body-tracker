@@ -14,52 +14,42 @@ const HEADINGS: TocHeading[] = [
 ];
 
 const PACKAGE_MANAGER_EXAMPLES: CodeExample[] = [
-  { language: "bash", label: "npm", code: "npm install @bodytracker/sdk" },
-  { language: "bash", label: "yarn", code: "yarn add @bodytracker/sdk" },
-  { language: "bash", label: "pnpm", code: "pnpm add @bodytracker/sdk" },
-  { language: "bash", label: "bun", code: "bun add @bodytracker/sdk" },
+  { language: "bash", label: "npm", code: "npm install @kvl/sdk" },
+  { language: "bash", label: "yarn", code: "yarn add @kvl/sdk" },
+  { language: "bash", label: "pnpm", code: "pnpm add @kvl/sdk" },
+  { language: "bash", label: "bun", code: "bun add @kvl/sdk" },
   {
     language: "bash",
     label: "CDN",
-    code: `<script type="module">
-  import { BodyTracker } from "https://unpkg.com/@bodytracker/sdk@3.4.0/dist/index.js";
-
-  const tracker = new BodyTracker({ apiKey: "bt_live_7QxNm...redacted" });
+    code: `<script src="https://your-cdn.example.com/kvl-sdk.global.js"></script>
+<script>
+  const client = new KvlSDK.KvlClient({
+    baseUrl: "https://bodytracker.kvlbusinesssolutions.com/api/v1",
+    auth: { type: "apiKey", apiKey: "sk_live_...redacted" },
+  });
 </script>`,
   },
 ];
 
 const REACT_INSTALL_EXAMPLES: CodeExample[] = [
-  { language: "bash", label: "npm", code: "npm install @bodytracker/react" },
-  { language: "bash", label: "yarn", code: "yarn add @bodytracker/react" },
-  { language: "bash", label: "pnpm", code: "pnpm add @bodytracker/react" },
-  { language: "bash", label: "bun", code: "bun add @bodytracker/react" },
+  { language: "bash", label: "npm", code: "npm install @kvl/react" },
+  { language: "bash", label: "yarn", code: "yarn add @kvl/react" },
+  { language: "bash", label: "pnpm", code: "pnpm add @kvl/react" },
+  { language: "bash", label: "bun", code: "bun add @kvl/react" },
 ];
 
-const VERIFY_CODE = `import { BodyTracker, VERSION } from "@bodytracker/sdk";
+const VERIFY_CODE = `import { KvlClient } from "@kvl/sdk";
 
-console.log(\`@bodytracker/sdk v\${VERSION}\`);
-
-const tracker = new BodyTracker({ apiKey: "bt_test_3Lw8p...redacted" });
-console.log(tracker.getStatus()); // "idle"
+const client = new KvlClient({ auth: { type: "none" } });
+const health = await fetch(\`\${client.baseUrl}/health\`).then((r) => r.json());
+console.log(health); // { status: "ok", timestamp: "..." }
 `;
 
 const VERSION_HISTORY = [
   {
-    version: "3.4.0",
+    version: "0.1.0",
     date: "Current",
-    note: "Adds pauseSession/resumeSession and the qualityChanged event.",
-  },
-  {
-    version: "3.3.0",
-    date: "Prior",
-    note: "Introduces exportSession with JSON, CSV, and PDF output.",
-  },
-  { version: "3.2.0", date: "Prior", note: "Adds configurable smoothing and locale support." },
-  {
-    version: "3.0.0",
-    date: "Prior",
-    note: "Rewrites the event system around on()/off() with unsubscribe functions.",
+    note: "First real release — full REST API coverage (13 resource areas), auth (API key/Bearer/OAuth2/auto-refresh), real-time SSE client, file upload, React hooks. See the Changelog.",
   },
 ];
 
@@ -71,20 +61,29 @@ export default function InstallationPage() {
           <h1 className="text-foreground text-3xl font-bold tracking-tight">Installation</h1>
           <p className="text-muted-foreground text-lg">
             Add{" "}
-            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
-              @bodytracker/sdk
-            </code>{" "}
-            to your project using your package manager of choice, or load it directly from a CDN.
+            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">@kvl/sdk</code>{" "}
+            to your project using your package manager of choice, or load the CDN bundle directly.
           </p>
         </div>
+
+        <Alert variant="neutral">
+          <p>
+            <strong>Not yet published to a public npm registry.</strong> The code is real, built,
+            and tested (ESM + CJS + a minified CDN bundle, both dual-tested against a real running
+            server) — publishing is a deliberate, separate step. Until then, install from this
+            monorepo directly: <code className="font-mono text-[13px]">npm install</code> at the
+            repo root links both packages via npm workspaces.
+          </p>
+        </Alert>
 
         <section className="flex flex-col gap-4">
           <h2 id="package-managers" className="text-foreground scroll-mt-24 text-2xl font-semibold">
             Package managers
           </h2>
           <p className="text-foreground/90 leading-relaxed">
-            The core SDK ships as a single package with no runtime dependencies. Install it with
-            npm, yarn, pnpm, or bun — or import it straight from a CDN with no build step at all.
+            The core SDK has zero runtime dependencies beyond the real Web/Node platform APIs it
+            already uses (fetch, FormData, AbortController). Install it with npm, yarn, pnpm, or bun
+            — or load the real minified CDN bundle with no build step at all.
           </p>
           <CodeTabs examples={PACKAGE_MANAGER_EXAMPLES} />
         </section>
@@ -95,11 +94,9 @@ export default function InstallationPage() {
           </h2>
           <p className="text-foreground/90 leading-relaxed">
             Building with React? Install{" "}
-            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
-              @bodytracker/react
-            </code>{" "}
-            alongside the core SDK for hooks and components that manage the tracker lifecycle for
-            you.
+            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">@kvl/react</code>{" "}
+            alongside the core SDK for real hooks (useQuery/useMutation/useCurrentUser/useRealtime/
+            ...) built on @tanstack/react-query.
           </p>
           <CodeTabs examples={REACT_INSTALL_EXAMPLES} />
         </section>
@@ -109,15 +106,17 @@ export default function InstallationPage() {
             Requirements
           </h2>
           <p className="text-foreground/90 leading-relaxed">
-            Node.js 18+ for your build tooling, and a modern browser (the latest two versions of
-            Chrome, Edge, Safari, or Firefox) with camera access for tracking at runtime. See{" "}
+            Node.js 18+ (for its real global <code className="font-mono text-[13px]">fetch</code>)
+            or any modern browser. React 18+ if you use{" "}
+            <code className="font-mono text-[13px]">@kvl/react</code>. No camera or media
+            permissions are needed by this SDK itself — see{" "}
             <Link
               href="/docs/getting-started"
               className="text-accent font-medium underline underline-offset-4"
             >
               Getting Started
             </Link>{" "}
-            for the full list.
+            for a real quick start.
           </p>
         </section>
 
@@ -129,8 +128,8 @@ export default function InstallationPage() {
             Verify your installation
           </h2>
           <p className="text-foreground/90 leading-relaxed">
-            Once installed, import the SDK and log its version to confirm everything resolved
-            correctly:
+            Once installed, construct a real client and hit the real health endpoint to confirm
+            everything resolved correctly:
           </p>
           <CodeBlock code={VERIFY_CODE} language="typescript" filename="verify.ts" />
         </section>

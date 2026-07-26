@@ -12,6 +12,16 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Real tsup build output for the @kvl/sdk and @kvl/react monorepo
+    // packages (ESM/CJS/CDN bundles + .d.ts) — generated, not hand-written,
+    // and the CDN bundle is deliberately minified (not meant to satisfy
+    // this app's own source-formatting rules).
+    "packages/*/dist/**",
+    // Auto-generated from the live OpenAPI schema (openapi-typescript) —
+    // see packages/sdk/scripts/generate-sdk-openapi-schema.mjs.
+    "packages/sdk/src/generated/**",
+    // vitest --coverage HTML report output.
+    "packages/*/coverage/**",
   ]),
 ]);
 

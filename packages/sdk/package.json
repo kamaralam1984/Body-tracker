@@ -1,0 +1,37 @@
+{
+  "name": "@kvl/sdk",
+  "version": "0.1.0",
+  "description": "Official Body Tracker JavaScript/TypeScript SDK — typed REST client, auth, retries, and real-time.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "generate": "cd ../.. && npx tsx scripts/generate-sdk-openapi-schema.mjs && cd packages/sdk && npx openapi-typescript openapi/schema.json -o src/generated/openapi-types.ts",
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run --exclude '**/integration/**'",
+    "test:integration": "vitest run test/integration",
+    "test:types": "tsc --noEmit -p tsconfig.test.json",
+    "test:coverage": "vitest run --exclude '**/integration/**' --coverage"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^4.1.10",
+    "msw": "^2.15.0",
+    "openapi-typescript": "^7.13.0",
+    "tsup": "^8.5.1",
+    "vitest": "^4.1.10"
+  }
+}

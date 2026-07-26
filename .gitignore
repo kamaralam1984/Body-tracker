@@ -2,6 +2,9 @@
 
 # dependencies
 /node_modules
+# npm workspaces sometimes can't hoist every sub-dependency to the root
+# node_modules (version conflicts) and installs a package-local one instead.
+/packages/*/node_modules
 /.pnp
 .pnp.*
 .yarn/*
@@ -40,3 +43,12 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .claude/
+
+# real user-uploaded files — stored outside public/ deliberately, since
+# Next.js standalone output copies a build-time snapshot of public/ that
+# a runtime write would never reach (see src/app/api/v1/users/me/avatar).
+/var/uploads/
+
+# monorepo package build output
+/packages/*/dist/
+/packages/*/coverage/

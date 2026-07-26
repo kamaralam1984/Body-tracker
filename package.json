@@ -2,6 +2,9 @@
   "name": "body-tracker",
   "version": "0.1.0",
   "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -9,7 +12,9 @@
     "lint": "eslint",
     "format": "prettier --write .",
     "prepare": "husky",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "sdk:generate": "npm run generate --workspace=@kvl/sdk",
+    "sdk:build": "npm run build --workspace=@kvl/sdk && npm run build --workspace=@kvl/react"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",

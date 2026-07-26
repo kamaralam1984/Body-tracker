@@ -56,9 +56,7 @@ export default function StatusPage() {
         <h1 className="text-foreground text-3xl font-bold tracking-tight">System status</h1>
         <p className="text-muted-foreground text-lg">
           Current operational status of{" "}
-          <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
-            @bodytracker/sdk
-          </code>
+          <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">@kvl/sdk</code>
           &apos;s backing services and this documentation site.
         </p>
       </div>

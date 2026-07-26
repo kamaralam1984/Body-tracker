@@ -67,7 +67,11 @@ export function findNavItem(href: string) {
   return null;
 }
 
-export const SDK_VERSION = "3.4.0";
-export const SDK_PACKAGE_NAME = "@bodytracker/sdk";
-export const SDK_REACT_PACKAGE_NAME = "@bodytracker/react";
-export const SDK_GITHUB_URL = "https://github.com/bodytracker/sdk";
+// Real package metadata — see packages/sdk/package.json and
+// packages/react/package.json. Not yet published to npm (real, built,
+// tested code — publishing itself is a deliberate opt-in step, see
+// INCOMPLETE.md's Phase 10 deploy handoff).
+export const SDK_VERSION = "0.1.0";
+export const SDK_PACKAGE_NAME = "@kvl/sdk";
+export const SDK_REACT_PACKAGE_NAME = "@kvl/react";
+export const SDK_GITHUB_URL = "https://github.com/kamaralam1984/Body-tracker";

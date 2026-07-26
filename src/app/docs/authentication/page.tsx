@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { CodeBlock } from "@/features/docs/components/code-block";
 import { TableOfContents } from "@/features/docs/components/table-of-contents";
 import { Alert } from "@/components/ui/alert";
@@ -5,38 +6,43 @@ import type { TocHeading } from "@/features/docs/types";
 
 const HEADINGS: TocHeading[] = [
   { id: "api-keys", text: "API keys", depth: 2 },
-  { id: "environments", text: "Environments", depth: 2 },
-  { id: "configuring-the-client", text: "Configuring the client", depth: 2 },
+  { id: "user-sessions", text: "User sessions (login)", depth: 2 },
+  { id: "oauth2", text: "OAuth2", depth: 2 },
+  { id: "automatic-token-refresh", text: "Automatic token refresh", depth: 2 },
   { id: "rotating-keys", text: "Rotating keys", depth: 2 },
 ];
 
-const API_KEY_CODE = `import { BodyTracker } from "@bodytracker/sdk";
+const API_KEY_CODE = `import { KvlClient } from "@kvl/sdk";
 
-const tracker = new BodyTracker({
-  apiKey: "bt_live_51H8x...redacted",
+const client = new KvlClient({
+  auth: { type: "apiKey", apiKey: "sk_live_...redacted" },
 });
 `;
 
-const ENVIRONMENT_CODE = `import { BodyTracker } from "@bodytracker/sdk";
+const BEARER_CODE = `import { KvlClient } from "@kvl/sdk";
 
-// Sandbox: safe for local development, uses bt_test_ keys,
-// and never bills or writes to production analytics.
-const tracker = new BodyTracker({
-  apiKey: "bt_test_82Vd0...redacted",
-  environment: "sandbox",
+// Start signed out, then log in:
+const client = new KvlClient({ auth: { type: "none" } });
+const { user } = await client.login("owner@example.com", "correct-password");
+
+// Or construct already-signed-in with tokens you obtained elsewhere:
+const client2 = new KvlClient({
+  auth: { type: "bearer", accessToken: "...", refreshToken: "..." },
 });
 `;
 
-const CONFIG_CODE = `import { BodyTracker } from "@bodytracker/sdk";
+const OAUTH_CODE = `import { KvlClient } from "@kvl/sdk";
 
-const tracker = new BodyTracker({
-  apiKey: "bt_live_9Fk2q...redacted",
-  environment: "production",
-  cameraDeviceId: "e3f1c9b2...",
-  activityTypes: ["standing", "walking", "running"],
-  smoothing: { enabled: true, windowSize: 5 },
-  locale: "en-US",
+const client = new KvlClient({ auth: { type: "none" } });
+
+// After your app's own redirect-based authorization-code+PKCE flow:
+const tokens = await client.oauth.exchangeCode({
+  code,
+  clientId,
+  redirectUri,
+  codeVerifier,
 });
+client.auth.setSession({ accessToken: tokens.accessToken, refreshToken: tokens.refreshToken });
 `;
 
 export default function AuthenticationPage() {
@@ -46,8 +52,8 @@ export default function AuthenticationPage() {
         <div className="flex flex-col gap-3">
           <h1 className="text-foreground text-3xl font-bold tracking-tight">Authentication</h1>
           <p className="text-muted-foreground text-lg">
-            Every tracker instance is authenticated with an API key, scoped to a production or
-            sandbox environment.
+            Every real auth method this API actually supports — API keys, a real user session
+            (login/logout, auto-refreshed), and OAuth2 authorization-code + PKCE.
           </p>
         </div>
 
@@ -56,90 +62,108 @@ export default function AuthenticationPage() {
             API keys
           </h2>
           <p className="text-foreground/90 leading-relaxed">
-            Pass your key via the{" "}
-            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">apiKey</code>{" "}
-            field when constructing a{" "}
-            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
-              BodyTracker
-            </code>
-            . Keys come in two flavors, distinguished by prefix:
+            For server-to-server and service-account use. Real, prefix-encoded, environment- and
+            type-aware keys (see{" "}
+            <Link
+              href="/settings/api"
+              className="text-accent font-medium underline underline-offset-4"
+            >
+              Settings → API
+            </Link>{" "}
+            to create one):
           </p>
           <ul className="text-foreground/90 flex list-disc flex-col gap-2 pl-5 leading-relaxed">
             <li>
               <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
-                bt_live_...
+                sk_live_...
               </code>{" "}
-              — production keys. These track real sessions and count against your plan&apos;s usage.
+              /{" "}
+              <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
+                sk_test_...
+              </code>{" "}
+              — secret keys, full scopes, server-side only.
             </li>
             <li>
               <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
-                bt_test_...
+                pk_live_...
               </code>{" "}
-              — sandbox keys. Safe for local development and CI; sessions are not billed or
-              persisted long-term.
+              /{" "}
+              <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
+                pk_test_...
+              </code>{" "}
+              — publishable keys, real server-enforced rejection of any write scope, safe for
+              client-side code.
             </li>
           </ul>
-          <CodeBlock code={API_KEY_CODE} language="typescript" filename="tracker.ts" />
-          <Alert variant="warning" title="Never expose live keys in client-side bundles">
+          <CodeBlock code={API_KEY_CODE} language="typescript" filename="api-key-client.ts" />
+          <Alert variant="warning" title="Never expose a secret key in client-side code">
             <p>
               A{" "}
-              <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">bt_live_</code>{" "}
-              key embedded in a browser bundle is visible to anyone who opens dev tools. For
-              production apps, mint short-lived tokens from your backend — proxy the initial
-              handshake through your own server, which holds the real key, and hand the browser a
-              scoped token instead. Sandbox keys are lower risk but should still stay out of public
-              repos.
+              <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">sk_live_</code>{" "}
+              key embedded in a browser bundle is visible to anyone who opens dev tools. Use a{" "}
+              <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">pk_live_</code>{" "}
+              key for client-side code (the server rejects write scopes on it at creation time), or
+              proxy requests through your own backend.
             </p>
           </Alert>
         </section>
 
         <section className="flex flex-col gap-4">
-          <h2 id="environments" className="text-foreground scroll-mt-24 text-2xl font-semibold">
-            Environments
+          <h2 id="user-sessions" className="text-foreground scroll-mt-24 text-2xl font-semibold">
+            User sessions (login)
           </h2>
           <p className="text-foreground/90 leading-relaxed">
-            The optional{" "}
+            A real Bearer session — the same real{" "}
             <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
-              environment
+              POST /auth/login
             </code>{" "}
-            field controls which backend your tracker talks to —{" "}
+            this app&apos;s own frontend uses. Tokens are stored via a real, pluggable{" "}
+            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">TokenStore</code>{" "}
+            —
             <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
-              &quot;production&quot;
+              localStorage
             </code>{" "}
-            (the default) or{" "}
-            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
-              &quot;sandbox&quot;
-            </code>
-            . It should match your key type: pairing a{" "}
-            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">bt_test_</code>{" "}
-            key with{" "}
-            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
-              &quot;production&quot;
-            </code>{" "}
-            (or vice versa) causes{" "}
-            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">init()</code> to
-            reject.
+            in a browser, in-memory in Node unless you supply your own.
           </p>
-          <CodeBlock code={ENVIRONMENT_CODE} language="typescript" filename="sandbox.ts" />
+          <CodeBlock code={BEARER_CODE} language="typescript" filename="login.ts" />
+        </section>
+
+        <section className="flex flex-col gap-4">
+          <h2 id="oauth2" className="text-foreground scroll-mt-24 text-2xl font-semibold">
+            OAuth2
+          </h2>
+          <p className="text-foreground/90 leading-relaxed">
+            This app is also a real OAuth2 provider (authorization-code + PKCE).{" "}
+            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
+              client.oauth
+            </code>{" "}
+            handles registering client apps and exchanging a real authorization code for tokens —
+            once issued, an OAuth2 access token is just a Bearer token, so feed it into the same
+            session machinery:
+          </p>
+          <CodeBlock code={OAUTH_CODE} language="typescript" filename="oauth.ts" />
         </section>
 
         <section className="flex flex-col gap-4">
           <h2
-            id="configuring-the-client"
+            id="automatic-token-refresh"
             className="text-foreground scroll-mt-24 text-2xl font-semibold"
           >
-            Configuring the client
+            Automatic token refresh
           </h2>
           <p className="text-foreground/90 leading-relaxed">
-            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">apiKey</code> is
-            the only required field. Everything else in{" "}
+            Every request that gets a real 401 in Bearer mode triggers exactly one real{" "}
             <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
-              BodyTrackerConfig
+              POST /auth/refresh
             </code>{" "}
-            is optional and lets you pin a specific camera, restrict which activities are detected,
-            tune motion smoothing, and set a locale for formatted output:
+            call (deduped — concurrent 401s across several in-flight requests share one refresh),
+            then transparently retries the original request with the new access token. If refresh
+            also fails, the local session is cleared and{" "}
+            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
+              auth.session_cleared
+            </code>{" "}
+            fires — a good place to redirect to a login screen.
           </p>
-          <CodeBlock code={CONFIG_CODE} language="typescript" filename="configured-tracker.ts" />
         </section>
 
         <section className="flex flex-col gap-4">
@@ -147,11 +171,19 @@ export default function AuthenticationPage() {
             Rotating keys
           </h2>
           <p className="text-foreground/90 leading-relaxed">
-            If a key is ever exposed — committed to a public repo, leaked in a client bundle, or
-            simply due for routine rotation — revoke it and generate a replacement from the account
-            dashboard. Revoking a key takes effect immediately; any tracker instance still using it
-            will fail on its next request, so roll out the new key to your deployments before
-            revoking the old one.
+            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
+              client.apiKeys.rotate(id)
+            </code>{" "}
+            issues a real new secret and starts a real grace-period countdown on the old one
+            (default 24h) — both authenticate successfully until it passes, so you can roll the new
+            key out to your deployments before the old one stops working. See{" "}
+            <Link
+              href="/docs/api-explorer"
+              className="text-accent font-medium underline underline-offset-4"
+            >
+              API Explorer
+            </Link>{" "}
+            for the full real endpoint.
           </p>
         </section>
       </article>

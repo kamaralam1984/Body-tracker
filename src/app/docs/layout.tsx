@@ -6,7 +6,7 @@ export const metadata: Metadata = {
     default: "Body Tracker Docs",
     template: "%s · Body Tracker Docs",
   },
-  description: "Documentation for the @bodytracker/sdk developer platform.",
+  description: "Documentation for the @kvl/sdk developer platform.",
 };
 
 export default function DocsSectionLayout({ children }: { children: React.ReactNode }) {

@@ -14,183 +14,182 @@ import {
 import type { ApiParam, TocHeading } from "@/features/docs/types";
 
 const HEADINGS: TocHeading[] = [
-  { id: "initialization", text: "Initialization", depth: 2 },
+  { id: "construction", text: "Construction", depth: 2 },
   { id: "configuration", text: "Configuration", depth: 2 },
-  { id: "lifecycle", text: "Lifecycle", depth: 2 },
-  { id: "utilities", text: "Utilities", depth: 2 },
-  { id: "constants", text: "Constants", depth: 2 },
-  { id: "types-interfaces", text: "Types & Interfaces", depth: 2 },
+  { id: "resource-namespaces", text: "Resource namespaces", depth: 2 },
+  { id: "errors", text: "Errors", depth: 2 },
+  { id: "retries-circuit-breaker", text: "Retries & circuit breaker", depth: 2 },
+  { id: "types", text: "Types", depth: 2 },
 ];
 
 const CONFIG_PARAMS: ApiParam[] = [
   {
-    name: "apiKey",
+    name: "baseUrl",
     type: "string",
+    required: false,
+    defaultValue: '"/api/v1"',
+    description:
+      "Only resolvable as a relative default in a browser, same-origin. Required outside a browser (Node, cross-origin).",
+  },
+  {
+    name: "auth",
+    type: "AuthMode",
     required: true,
     description:
-      'Your BodyTracker API key, e.g. "bt_live_..." for production or "bt_test_..." for sandbox testing.',
+      '{ type: "apiKey", apiKey } | { type: "bearer", accessToken?, refreshToken?, store? } | { type: "none", store? } — see Authentication.',
   },
   {
-    name: "environment",
-    type: '"production" | "sandbox"',
+    name: "fetch",
+    type: "typeof fetch",
     required: false,
-    defaultValue: '"production"',
     description:
-      'Use "sandbox" during development to exercise the API against synthetic tracking data with no camera required.',
+      "Override the fetch implementation — mainly for tests. Node 18+ and every real browser already have one.",
   },
   {
-    name: "cameraDeviceId",
-    type: "string",
+    name: "retry",
+    type: "Partial<RetryConfig>",
     required: false,
-    description:
-      "The deviceId of a specific camera to use. Omit to let the SDK pick the system default.",
+    description: "maxAttempts (default 3), baseDelayMs (300), maxDelayMs (8000), shouldRetry.",
   },
   {
-    name: "activityTypes",
-    type: "ActivityType[]",
+    name: "circuitBreaker",
+    type: "Partial<CircuitBreakerConfig>",
     required: false,
-    description:
-      "Restricts detection to a subset of activity types. Omit to detect all supported activities.",
+    description: "failureThreshold (default 5), resetTimeoutMs (30000).",
   },
   {
-    name: "smoothing",
-    type: "{ enabled: boolean; windowSize?: number }",
+    name: "timeoutMs",
+    type: "number",
     required: false,
-    description:
-      "Applies a rolling-average filter to reduce jitter in movement data. windowSize is the number of frames averaged.",
+    defaultValue: "30000",
+    description: "Per-request timeout, distinct from a caller's own AbortSignal.",
   },
   {
-    name: "locale",
-    type: "string",
+    name: "middleware",
+    type: "Middleware[]",
     required: false,
-    description:
-      'A BCP 47 locale tag (e.g. "en-US") used to localize error messages and export labels.',
+    description: "beforeRequest/afterResponse/onError hooks — see use().",
   },
 ];
 
-const STATUS_ROWS: { value: string; meaning: string }[] = [
+const RESOURCE_ROWS: { value: string; meaning: string }[] = [
+  { value: "client.sessions", meaning: "Tracking session records — list/get/create/update." },
   {
-    value: "idle",
-    meaning: "The tracker has been constructed but init() has not been called yet.",
+    value: "client.tracking",
+    meaning:
+      "Live session lifecycle — start/pause/resume/stop/status/recordRep/recordMetrics/recordExerciseSet.",
   },
   {
-    value: "initializing",
-    meaning: "init() is in progress — requesting camera permission and loading the tracking model.",
+    value: "client.analytics",
+    meaning:
+      "Aggregated analytics — summary, daily snapshots, attention/posture/fatigue/movement/gesture reads.",
   },
-  { value: "ready", meaning: "init() has resolved; the tracker is ready to start a session." },
-  { value: "tracking", meaning: "A session is actively recording movement data." },
-  { value: "paused", meaning: "A session exists but is paused via pauseSession()." },
-  { value: "stopped", meaning: "destroy() has been called; the instance can no longer be used." },
-  { value: "error", meaning: "An unrecoverable error occurred during initialization or tracking." },
+  { value: "client.reports", meaning: "Generated report documents — list/get/create/download." },
+  {
+    value: "client.webhooks",
+    meaning: "Outbound event delivery — list/create/update/delete/deliveries/test.",
+  },
+  {
+    value: "client.apiKeys",
+    meaning: "Personal API key management — list/create/update/revoke/rotate/rotationHistory.",
+  },
+  { value: "client.organizations", meaning: "Your org, teams, roles, members." },
+  {
+    value: "client.users",
+    meaning: "The caller's org's users, and your own profile (incl. avatar upload).",
+  },
+  {
+    value: "client.serviceAccounts",
+    meaning: "Machine identities for CI/CD — list/create/update/delete/issueApiKey.",
+  },
+  {
+    value: "client.oauth",
+    meaning:
+      "This app's own OAuth2 provider — client-app CRUD + the authorization-code+PKCE exchange.",
+  },
+  {
+    value: "client.notifications",
+    meaning: "Real in-app notifications — list/markRead/markAllRead.",
+  },
+  {
+    value: "client.securityCenter",
+    meaning:
+      "Real security posture — inactive/expired/near-expiration/compromised keys, failed-auth spikes.",
+  },
+  {
+    value: "client.platformAdmin",
+    meaning: "Real cross-org administration — requires a real platform-admin principal.",
+  },
+  { value: "client.realtime", meaning: "The real SSE tracking-stream client — see Events." },
+  {
+    value: "client.uploads",
+    meaning: "The real file-upload client (avatar upload with real progress events).",
+  },
 ];
 
-const ACTIVITY_ROWS: { value: string; meaning: string }[] = [
-  { value: "standing", meaning: "Subject is upright and stationary." },
-  { value: "walking", meaning: "Subject is moving at a walking pace." },
-  { value: "running", meaning: "Subject is moving at a running pace." },
-  { value: "sitting", meaning: "Subject is seated." },
-  { value: "idle", meaning: "No activity has been confidently detected yet." },
+const ERROR_ROWS: { value: string; meaning: string }[] = [
+  {
+    value: "KvlApiError",
+    meaning:
+      "A real non-2xx HTTP response — carries the server's real code/status/message/details/traceId.",
+  },
+  {
+    value: "KvlNetworkError",
+    meaning: "The request never got a response at all (DNS failure, offline, connection refused).",
+  },
+  { value: "KvlTimeoutError", meaning: "The request was aborted by timeoutMs." },
+  { value: "KvlAbortError", meaning: "The caller's own AbortSignal fired." },
+  {
+    value: "KvlCircuitOpenError",
+    meaning:
+      "The circuit breaker is open — the request was rejected without even attempting the network call.",
+  },
 ];
 
-const QUALITY_ROWS: { value: string; meaning: string }[] = [
-  {
-    value: "excellent",
-    meaning: "High-confidence tracking with a clear, well-lit view of the subject.",
-  },
-  { value: "good", meaning: "Reliable tracking with minor visibility or lighting limitations." },
-  {
-    value: "limited",
-    meaning: "Tracking is degraded — consider repositioning the camera or subject.",
-  },
-  { value: "searching", meaning: "The tracker is actively trying to reacquire the subject." },
-  { value: "offline", meaning: "No camera feed is available to evaluate quality." },
-];
+const TYPES_CODE = `class KvlClient extends EventEmitter {
+  readonly auth: AuthManager;
+  readonly baseUrl: string;
+  // ...one property per resource namespace, see the table above
 
-const TYPES_CODE = `class BodyTracker {
-  constructor(config: BodyTrackerConfig);
-  init(): Promise<void>;
-  startSession(options?: StartSessionOptions): Promise<Session>;
-  stopSession(): Promise<SessionSummary>;
-  pauseSession(): void;
-  resumeSession(): void;
-  getStatus(): TrackerStatus;
-  getActivity(): ActivitySnapshot;
-  on(event: TrackerEventName, handler: (payload: unknown) => void): () => void; // returns unsubscribe fn
-  off(event: TrackerEventName, handler: (payload: unknown) => void): void;
-  exportSession(sessionId: string, format: "json" | "csv" | "pdf"): Promise<Blob>;
-  destroy(): void;
+  constructor(config: KvlClientConfig);
+  use(middleware: Middleware): void;
+  request<T>(options: RequestOptions): Promise<T>;
+  login(email: string, password: string): Promise<LoginResult>;
+  logout(): Promise<void>;
 }
 
-interface BodyTrackerConfig {
-  apiKey: string;
-  environment?: "production" | "sandbox"; // default "production"
-  cameraDeviceId?: string;
-  activityTypes?: ActivityType[];
-  smoothing?: { enabled: boolean; windowSize?: number };
-  locale?: string;
+interface KvlClientConfig {
+  baseUrl?: string;
+  auth: AuthMode;
+  fetch?: typeof fetch;
+  retry?: Partial<RetryConfig>;
+  circuitBreaker?: Partial<CircuitBreakerConfig>;
+  timeoutMs?: number;
+  middleware?: Middleware[];
 }
 
-interface StartSessionOptions {
-  activity?: ActivityType;
-  label?: string;
+type AuthMode =
+  | { type: "apiKey"; apiKey: string }
+  | { type: "bearer"; accessToken?: string; refreshToken?: string; store?: TokenStore }
+  | { type: "none"; store?: TokenStore };
+
+interface PageResult<T> {
+  items: T[];
+  nextCursor: string | null;
+  total: number;
 }
-
-type TrackerStatus =
-  | "idle"
-  | "initializing"
-  | "ready"
-  | "tracking"
-  | "paused"
-  | "stopped"
-  | "error";
-
-type ActivityType = "standing" | "walking" | "running" | "sitting" | "idle";
-
-type QualityLevel = "excellent" | "good" | "limited" | "searching" | "offline";
-
-interface Session {
-  id: string;
-  startedAt: string;
-  activity: ActivityType;
-  status: "recording" | "paused";
-}
-
-interface SessionSummary {
-  id: string;
-  durationSeconds: number;
-  activity: ActivityType;
-  averageQuality: QualityLevel;
-}
-
-interface ActivitySnapshot {
-  activity: ActivityType;
-  quality: QualityLevel;
-  since: string;
-}
-
-type TrackerEventName =
-  | "ready"
-  | "trackingStarted"
-  | "trackingStopped"
-  | "trackingLost"
-  | "trackingRestored"
-  | "sessionStarted"
-  | "sessionEnded"
-  | "movementChanged"
-  | "activityChanged"
-  | "qualityChanged"
-  | "error";
 `;
 
-const INIT_CODE = `import { BodyTracker } from "@bodytracker/sdk";
+const INIT_CODE = `import { KvlClient } from "@kvl/sdk";
 
-// 1. Construct — synchronous, cheap, no camera or model work yet.
-const tracker = new BodyTracker({ apiKey: "bt_live_4Nq8v...redacted" });
+// Construction is synchronous and cheap — no network request happens
+// until you call a method.
+const client = new KvlClient({
+  baseUrl: "https://bodytracker.kvlbusinesssolutions.com/api/v1",
+  auth: { type: "apiKey", apiKey: "sk_live_...redacted" },
+});
 
-// 2. Initialize — async, requests camera permission and loads the model.
-await tracker.init();
-
-console.log(tracker.getStatus()); // "ready"
+const { items } = await client.sessions.list({ limit: 10 });
 `;
 
 function ConstantsTable({ rows }: { rows: { value: string; meaning: string }[] }) {
@@ -198,8 +197,8 @@ function ConstantsTable({ rows }: { rows: { value: string; meaning: string }[] }
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead>Value</TableHead>
-          <TableHead>Meaning</TableHead>
+          <TableHead>Name</TableHead>
+          <TableHead>What it real does</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -207,7 +206,7 @@ function ConstantsTable({ rows }: { rows: { value: string; meaning: string }[] }
           <TableRow key={row.value}>
             <TableCell>
               <code className="text-accent-600 dark:text-accent-400 font-mono text-xs">
-                &quot;{row.value}&quot;
+                {row.value}
               </code>
             </TableCell>
             <TableCell className="text-muted-foreground text-sm whitespace-normal">
@@ -227,54 +226,44 @@ export default function SdkReferencePage() {
         <div className="flex flex-col gap-3">
           <h1 className="text-foreground text-3xl font-bold tracking-tight">SDK Reference</h1>
           <p className="text-muted-foreground text-lg">
-            A conceptual tour of the{" "}
+            A conceptual tour of{" "}
+            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">@kvl/sdk</code>
+            &apos;s root{" "}
             <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
-              @bodytracker/sdk
+              KvlClient
             </code>{" "}
-            core: how the tracker initializes, how it&apos;s configured, how it moves through its
-            lifecycle, and the constants and types that make up its public surface. For the
-            method-by-method breakdown, see the{" "}
+            — configuration, resource namespaces, real error types, and retry behavior. For the
+            client&apos;s own methods (construction, login, request, use, on), see the{" "}
             <Link
               href="/docs/api-reference"
               className="text-accent font-medium underline underline-offset-4"
             >
               API Reference
             </Link>
+            ; for every real REST endpoint underneath, see the{" "}
+            <Link
+              href="/docs/api-explorer"
+              className="text-accent font-medium underline underline-offset-4"
+            >
+              API Explorer
+            </Link>
             .
           </p>
         </div>
 
         <section className="flex flex-col gap-4">
-          <h2 id="initialization" className="text-foreground scroll-mt-24 text-2xl font-semibold">
-            Initialization
+          <h2 id="construction" className="text-foreground scroll-mt-24 text-2xl font-semibold">
+            Construction
           </h2>
           <p className="text-foreground/90 leading-relaxed">
-            Creating a tracker is deliberately split into two steps. The{" "}
             <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
-              new BodyTracker(config)
+              new KvlClient(config)
             </code>{" "}
-            constructor is synchronous and cheap — it validates your config and returns an instance
-            in the{" "}
-            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">idle</code>{" "}
-            status, with no side effects on the page. Nothing touches the camera or downloads a
-            model yet, so you can construct a tracker eagerly (at module scope, in a provider,
-            wherever is convenient) without worrying about triggering a permission prompt or a
-            network request too early.
+            is synchronous — it sets up the token store, transport, retry/circuit-breaker, and
+            instantiates every resource namespace immediately. Nothing touches the network until you
+            call a method.
           </p>
-          <p className="text-foreground/90 leading-relaxed">
-            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">init()</code> is
-            where the real work happens: it requests camera access via{" "}
-            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
-              getUserMedia
-            </code>
-            , downloads and warms up the on-device tracking model, and only then transitions the
-            tracker to{" "}
-            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">ready</code>.
-            Separating the two steps means you control exactly when the permission prompt appears —
-            for example, behind a user-initiated &quot;Enable camera&quot; button, rather than the
-            moment your component mounts.
-          </p>
-          <CodeBlock code={INIT_CODE} language="typescript" filename="init.ts" />
+          <CodeBlock code={INIT_CODE} language="typescript" filename="client.ts" />
         </section>
 
         <section className="flex flex-col gap-4">
@@ -282,127 +271,88 @@ export default function SdkReferencePage() {
             Configuration
           </h2>
           <p className="text-foreground/90 leading-relaxed">
-            Every option accepted by the{" "}
+            Every real field on{" "}
             <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
-              BodyTrackerConfig
-            </code>{" "}
-            object passed to the constructor:
+              KvlClientConfig
+            </code>
+            :
           </p>
           <ParamsTable params={CONFIG_PARAMS} />
         </section>
 
         <section className="flex flex-col gap-4">
-          <h2 id="lifecycle" className="text-foreground scroll-mt-24 text-2xl font-semibold">
-            Lifecycle
+          <h2
+            id="resource-namespaces"
+            className="text-foreground scroll-mt-24 text-2xl font-semibold"
+          >
+            Resource namespaces
           </h2>
           <p className="text-foreground/90 leading-relaxed">
-            A tracker instance moves through a small, well-defined state machine. Read the current
-            state at any point with{" "}
-            <Link
-              href="/docs/api-reference#get-status"
-              className="text-accent font-medium underline underline-offset-4"
-            >
-              getStatus()
-            </Link>
-            , or subscribe to lifecycle and tracking events for reactive updates instead of polling.
+            Every real resource this API has, wrapped behind a real, typed method group on the
+            client instance:
           </p>
-          <ol className="text-foreground/90 flex list-decimal flex-col gap-2 pl-5 leading-relaxed">
-            <li>
-              <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">idle</code> —
-              immediately after construction. Nothing has happened yet.
-            </li>
-            <li>
-              <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
-                initializing
-              </code>{" "}
-              — while{" "}
-              <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">init()</code>{" "}
-              is in flight.
-            </li>
-            <li>
-              <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">ready</code> —
-              init() resolved; waiting for a session.
-            </li>
-            <li>
-              <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">tracking</code>{" "}
-              ⇄ <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">paused</code>{" "}
-              — a session is active; pauseSession()/resumeSession() move back and forth between
-              these two without ending it.
-            </li>
-            <li>
-              <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">stopped</code>{" "}
-              — after{" "}
-              <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
-                destroy()
-              </code>
-              . Terminal — construct a new tracker to track again.
-            </li>
-          </ol>
-          <Alert variant="warning" title="error is reachable from any state">
+          <ConstantsTable rows={RESOURCE_ROWS} />
+        </section>
+
+        <section className="flex flex-col gap-4">
+          <h2 id="errors" className="text-foreground scroll-mt-24 text-2xl font-semibold">
+            Errors
+          </h2>
+          <p className="text-foreground/90 leading-relaxed">
+            Every failure mode a real request can hit, as a distinct real error class you can{" "}
+            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">instanceof</code>{" "}
+            check (or use{" "}
+            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
+              isKvlApiError()
+            </code>{" "}
+            for the common case):
+          </p>
+          <ConstantsTable rows={ERROR_ROWS} />
+        </section>
+
+        <section className="flex flex-col gap-4">
+          <h2
+            id="retries-circuit-breaker"
+            className="text-foreground scroll-mt-24 text-2xl font-semibold"
+          >
+            Retries &amp; circuit breaker
+          </h2>
+          <p className="text-foreground/90 leading-relaxed">
+            Real exponential backoff (with full jitter) retries network failures and 429/502/503/504
+            responses up to{" "}
+            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
+              maxAttempts
+            </code>{" "}
+            times. A real circuit breaker sits in front of that: after{" "}
+            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
+              failureThreshold
+            </code>{" "}
+            consecutive failures, every further request is rejected immediately (no network call at
+            all) with{" "}
+            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
+              KvlCircuitOpenError
+            </code>{" "}
+            until{" "}
+            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
+              resetTimeoutMs
+            </code>{" "}
+            passes, at which point one real trial request is let through.
+          </p>
+          <Alert variant="info" title="Validation errors are never retried">
             <p>
-              A tracker can transition to <code className="font-mono text-[13px]">error</code> from
-              any other state if initialization fails or an unrecoverable runtime error occurs —
-              always attach an{" "}
-              <Link
-                href="/docs/events#error"
-                className="text-accent font-medium underline underline-offset-4"
-              >
-                error
-              </Link>{" "}
-              listener in production.
+              Only network failures and 429/502/503/504 are retried by default — a real
+              400/401/403/404/422 fails immediately, since retrying it would never succeed.
             </p>
           </Alert>
         </section>
 
         <section className="flex flex-col gap-4">
-          <h2 id="utilities" className="text-foreground scroll-mt-24 text-2xl font-semibold">
-            Utilities
+          <h2 id="types" className="text-foreground scroll-mt-24 text-2xl font-semibold">
+            Types
           </h2>
           <p className="text-foreground/90 leading-relaxed">
-            Beyond the core lifecycle and session methods, the tracker exposes{" "}
-            <Link
-              href="/docs/api-reference#export-session"
-              className="text-accent font-medium underline underline-offset-4"
-            >
-              exportSession()
-            </Link>{" "}
-            for turning a completed session into a downloadable{" "}
-            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">json</code>,{" "}
-            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">csv</code>, or{" "}
-            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">pdf</code> export
-            — see the API Reference entry for its full signature, parameters, and an example.
-          </p>
-        </section>
-
-        <section className="flex flex-col gap-6">
-          <h2 id="constants" className="text-foreground scroll-mt-24 text-2xl font-semibold">
-            Constants
-          </h2>
-          <div className="flex flex-col gap-3">
-            <h3 className="text-foreground font-mono text-sm font-semibold">TrackerStatus</h3>
-            <ConstantsTable rows={STATUS_ROWS} />
-          </div>
-          <div className="flex flex-col gap-3">
-            <h3 className="text-foreground font-mono text-sm font-semibold">ActivityType</h3>
-            <ConstantsTable rows={ACTIVITY_ROWS} />
-          </div>
-          <div className="flex flex-col gap-3">
-            <h3 className="text-foreground font-mono text-sm font-semibold">QualityLevel</h3>
-            <ConstantsTable rows={QUALITY_ROWS} />
-          </div>
-        </section>
-
-        <section className="flex flex-col gap-4">
-          <h2 id="types-interfaces" className="text-foreground scroll-mt-24 text-2xl font-semibold">
-            Types &amp; Interfaces
-          </h2>
-          <p className="text-foreground/90 leading-relaxed">
-            The full set of TypeScript declarations that make up the core SDK&apos;s public surface,
-            exported from{" "}
-            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
-              @bodytracker/sdk
-            </code>
-            :
+            The core public surface, exported from{" "}
+            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">@kvl/sdk</code>:
           </p>
           <CodeBlock code={TYPES_CODE} language="typescript" filename="types.ts" showLineNumbers />
         </section>

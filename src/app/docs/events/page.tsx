@@ -7,28 +7,26 @@ import type { EventCategory, EventDoc, TocHeading } from "@/features/docs/types"
 
 const CATEGORY_META: Record<EventCategory, { heading: string; id: string; description: string }> = {
   lifecycle: {
-    heading: "Lifecycle events",
+    heading: "Request lifecycle events",
     id: "lifecycle-events",
-    description:
-      "Fired as the tracker itself moves through initialization, independent of any session.",
+    description: "Fired around every real request the client makes, including retries.",
   },
   tracking: {
-    heading: "Tracking events",
+    heading: "Real-time (client.realtime) events",
     id: "tracking-events",
     description:
-      "Fired as frame-by-frame tracking starts, stops, or the detected activity and quality change.",
+      "Fired by the real SSE tracking-stream client — connection status and real tracking events pushed by the server.",
   },
   session: {
-    heading: "Session events",
+    heading: "Auth session events",
     id: "session-events",
     description:
-      "Fired when a session is created or finalized, mirroring startSession() and stopSession().",
+      "Fired when a real session is established (login, token refresh) or cleared (logout, refresh failure).",
   },
   error: {
     heading: "Error events",
     id: "error-events",
-    description:
-      "Fired when the tracker encounters a runtime error outside a specific method call's promise.",
+    description: "Fired on every real request failure.",
   },
 };
 
@@ -83,20 +81,20 @@ export default function EventsPage() {
         <div className="flex flex-col gap-3">
           <h1 className="text-foreground text-3xl font-bold tracking-tight">Events</h1>
           <p className="text-muted-foreground text-lg">
-            The tracker emits a fixed set of named events you can subscribe to with{" "}
+            The client emits real events you can subscribe to with{" "}
             <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
-              tracker.on(event, handler)
+              client.on(pattern, handler)
             </code>
             , which returns an unsubscribe function, or detach later with{" "}
             <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
-              tracker.off(event, handler)
+              client.off(pattern, handler)
             </code>
             . In React, prefer{" "}
             <a
-              href="/docs/hooks#use-events"
+              href="/docs/hooks#use-subscription"
               className="text-accent font-medium underline underline-offset-4"
             >
-              useEvents()
+              useSubscription()
             </a>
             , which subscribes for the component&apos;s lifetime and unsubscribes automatically on
             unmount.
@@ -108,15 +106,20 @@ export default function EventsPage() {
             Overview
           </h2>
           <p className="text-foreground/90 leading-relaxed">
-            Every event name is a member of the{" "}
+            Every real event falls into one of four categories below. Patterns support exact names,
+            a{" "}
             <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
-              TrackerEventName
+              &quot;namespace.*&quot;
             </code>{" "}
-            union and falls into one of four categories: <strong>lifecycle</strong> events track the
-            tracker instance itself, <strong>tracking</strong> events track the frame-by-frame
-            detection process, <strong>session</strong> events track the creation and completion of
-            recorded sessions, and the single <strong>error</strong> event surfaces runtime failures
-            that don&apos;t belong to a specific method call.
+            wildcard (e.g.{" "}
+            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
+              &quot;tracking.*&quot;
+            </code>{" "}
+            matches every real-time event), or{" "}
+            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
+              &quot;*&quot;
+            </code>{" "}
+            for everything.
           </p>
         </section>
 

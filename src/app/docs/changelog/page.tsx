@@ -38,10 +38,8 @@ export default function ChangelogPage() {
           <h1 className="text-foreground text-3xl font-bold tracking-tight">Changelog</h1>
           <p className="text-muted-foreground text-lg">
             Every release of{" "}
-            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
-              @bodytracker/sdk
-            </code>
-            , newest first. Breaking changes are called out in{" "}
+            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">@kvl/sdk</code>,
+            newest first. Breaking changes are called out in{" "}
             <Badge variant="danger" className="align-middle">
               Breaking
             </Badge>{" "}

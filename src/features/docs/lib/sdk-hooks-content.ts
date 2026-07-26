@@ -1,9 +1,12 @@
 /**
- * Structured reference content for `@bodytracker/react`'s hooks — one
- * `HookDoc` per hook. Every hook wraps a shared `BodyTracker` instance
- * provided further up the tree (typically via a `<BodyTrackerProvider>`),
- * so components can read tracker state reactively instead of polling the
- * imperative methods documented in the SDK Reference / API Reference pages.
+ * Real reference content for `@kvl/react`'s hooks — one `HookDoc` per
+ * hook. Every hook reads the real `KvlClient` provided by `<KvlProvider>`
+ * (see the Quick Start) via `@tanstack/react-query` underneath for the
+ * data-fetching ones — a real, well-tested caching engine, not a
+ * reinvented one. This covers the generic hooks plus a representative
+ * sample of the real domain hooks; the rest (useSession, useNotifications,
+ * useSecurityCenter, useUpload) follow the exact same useQuery/useMutation
+ * pattern shown here — see packages/react/src/hooks.ts for the full list.
  *
  * Rendered by `src/app/docs/hooks/page.tsx` via `<HookCard doc={...} />`.
  */
@@ -12,378 +15,221 @@ import type { HookDoc } from "../types";
 
 export const SDK_HOOKS: HookDoc[] = [
   {
-    id: "use-tracking",
-    name: "useTracking()",
-    signature: "function useTracking(): UseTrackingResult",
+    id: "use-kvl-client",
+    name: "useKvlClient()",
+    signature: "function useKvlClient(): KvlClient",
     description:
-      "The primitive hook for driving the tracker's lifecycle from a component: exposes the current status, start/stop callbacks that wrap init() and startSession()/stopSession(), and any error thrown along the way. Most other hooks build on the same underlying tracker instance this hook reads from.",
+      "Returns the real KvlClient instance passed to the nearest <KvlProvider>. Throws a clear error if called outside one, rather than silently returning null.",
     params: [],
-    returns: {
-      type: "UseTrackingResult",
-      description: "An object with the tracker's status plus imperative start and stop callbacks.",
-      fields: [
-        {
-          name: "status",
-          type: "TrackerStatus",
-          required: true,
-          description:
-            "The tracker's current lifecycle status, re-rendering the component on every change.",
-        },
-        {
-          name: "start",
-          type: "() => Promise<void>",
-          required: true,
-          description:
-            "Initializes the tracker (if needed) and starts a session with default options.",
-        },
-        {
-          name: "stop",
-          type: "() => Promise<void>",
-          required: true,
-          description: "Stops the active session.",
-        },
-        {
-          name: "error",
-          type: "Error | null",
-          required: true,
-          description:
-            "The most recent error thrown by start() or stop(), or null if there wasn't one.",
-        },
-      ],
-    },
+    returns: { type: "KvlClient", description: "The real client instance." },
     example: {
       language: "tsx",
-      filename: "TrackingButton.tsx",
-      code: `import { useTracking } from "@bodytracker/react";
+      filename: "Profile.tsx",
+      code: `import { useKvlClient } from "@kvl/react";
 
-export function TrackingButton() {
-  const { status, start, stop, error } = useTracking();
-
-  return (
-    <div>
-      <button
-        onClick={status === "tracking" ? stop : start}
-        disabled={status === "initializing"}
-      >
-        {status === "tracking" ? "Stop tracking" : "Start tracking"}
-      </button>
-      {error && <p role="alert">{error.message}</p>}
-    </div>
-  );
+export function LogoutButton() {
+  const client = useKvlClient();
+  return <button onClick={() => client.logout()}>Sign out</button>;
 }
 `,
     },
-    since: "1.0.0",
+    since: "0.1.0",
   },
   {
-    id: "use-session",
-    name: "useSession()",
-    signature: "function useSession(): UseSessionResult",
-    description:
-      "Reads the currently active tracking session, if any, and exposes callbacks to start and stop one with full StartSessionOptions control (activity type, label) — a more configurable alternative to useTracking()'s bare start()/stop().",
-    params: [],
-    returns: {
-      type: "UseSessionResult",
-      description: "The active session (or null), session controls, and a recording flag.",
-      fields: [
-        {
-          name: "session",
-          type: "Session | null",
-          required: true,
-          description: "The current session, or null if none is active.",
-        },
-        {
-          name: "startSession",
-          type: "(options?: StartSessionOptions) => Promise<Session>",
-          required: true,
-          description: "Starts a new session with the given activity and label.",
-        },
-        {
-          name: "stopSession",
-          type: "() => Promise<SessionSummary>",
-          required: true,
-          description: "Stops the active session and resolves with its summary.",
-        },
-        {
-          name: "isRecording",
-          type: "boolean",
-          required: true,
-          description: 'true when session.status === "recording".',
-        },
-      ],
-    },
-    example: {
-      language: "tsx",
-      filename: "SessionRecorder.tsx",
-      code: `import { useSession } from "@bodytracker/react";
-
-export function SessionRecorder() {
-  const { session, startSession, stopSession, isRecording } = useSession();
-
-  return (
-    <div>
-      <button
-        onClick={() =>
-          isRecording ? stopSession() : startSession({ activity: "walking", label: "Evening walk" })
-        }
-      >
-        {isRecording ? "End session" : "Start session"}
-      </button>
-      {session && <p>Session {session.id} — {session.status}</p>}
-    </div>
-  );
-}
-`,
-    },
-    since: "1.0.0",
-  },
-  {
-    id: "use-camera",
-    name: "useCamera()",
-    signature: "function useCamera(): UseCameraResult",
-    description:
-      "Exposes the raw camera stream backing the tracker along with the list of available video input devices, so you can render a live preview or build a device picker without touching getUserMedia directly.",
-    params: [],
-    returns: {
-      type: "UseCameraResult",
-      description: "The active MediaStream, available devices, and controls for selecting one.",
-      fields: [
-        {
-          name: "stream",
-          type: "MediaStream | null",
-          required: true,
-          description: "The tracker's active camera stream, or null before init() resolves.",
-        },
-        {
-          name: "devices",
-          type: "MediaDeviceInfo[]",
-          required: true,
-          description: "All video input devices available to the browser.",
-        },
-        {
-          name: "selectedDeviceId",
-          type: "string | null",
-          required: true,
-          description:
-            "The deviceId currently in use, matching BodyTrackerConfig.cameraDeviceId if one was set.",
-        },
-        {
-          name: "selectDevice",
-          type: "(deviceId: string) => void",
-          required: true,
-          description: "Switches the active camera to the given device id.",
-        },
-        {
-          name: "permission",
-          type: '"granted" | "denied" | "prompt"',
-          required: true,
-          description: "The current camera permission state reported by the browser.",
-        },
-      ],
-    },
-    example: {
-      language: "tsx",
-      filename: "CameraPreview.tsx",
-      code: `import { useRef, useEffect } from "react";
-import { useCamera } from "@bodytracker/react";
-
-export function CameraPreview() {
-  const { stream, devices, selectedDeviceId, selectDevice, permission } = useCamera();
-  const videoRef = useRef<HTMLVideoElement>(null);
-
-  useEffect(() => {
-    if (videoRef.current) videoRef.current.srcObject = stream;
-  }, [stream]);
-
-  if (permission === "denied") return <p>Camera access is required to track movement.</p>;
-
-  return (
-    <div>
-      <video ref={videoRef} autoPlay muted playsInline />
-      <select value={selectedDeviceId ?? ""} onChange={(e) => selectDevice(e.target.value)}>
-        {devices.map((d) => (
-          <option key={d.deviceId} value={d.deviceId}>
-            {d.label || "Camera"}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
-}
-`,
-    },
-    since: "1.2.0",
-  },
-  {
-    id: "use-activity",
-    name: "useActivity()",
-    signature: "function useActivity(): UseActivityResult",
-    description:
-      "Subscribes to activityChanged and qualityChanged internally and exposes the current activity, current tracking quality, and a rolling history of recent activity snapshots — the reactive counterpart to calling getActivity() imperatively.",
-    params: [],
-    returns: {
-      type: "UseActivityResult",
-      description: "The current activity, its quality, and a short history of recent snapshots.",
-      fields: [
-        {
-          name: "currentActivity",
-          type: "ActivityType",
-          required: true,
-          description: "The most recently detected activity.",
-        },
-        {
-          name: "quality",
-          type: "QualityLevel",
-          required: true,
-          description: "The current tracking quality for the active camera view.",
-        },
-        {
-          name: "history",
-          type: "ActivitySnapshot[]",
-          required: true,
-          description:
-            "The most recent activity snapshots, oldest first, capped to a fixed rolling window.",
-        },
-      ],
-    },
-    example: {
-      language: "tsx",
-      filename: "ActivityBadge.tsx",
-      code: `import { useActivity } from "@bodytracker/react";
-
-export function ActivityBadge() {
-  const { currentActivity, quality, history } = useActivity();
-
-  return (
-    <div>
-      <span>{currentActivity}</span>
-      <span data-quality={quality}>{quality}</span>
-      <small>{history.length} recent samples</small>
-    </div>
-  );
-}
-`,
-    },
-    since: "1.2.0",
-  },
-  {
-    id: "use-events",
-    name: "useEvents()",
+    id: "use-query",
+    name: "useQuery()",
     signature:
-      "function useEvents<T = unknown>(event: TrackerEventName, handler: (payload: T) => void): void",
+      "function useQuery<T>(queryKey: readonly unknown[], queryFn: (client: KvlClient) => Promise<T>, options?): UseQueryResult<T>",
     description:
-      "Subscribes handler to a tracker event for the lifetime of the component, calling tracker.on() on mount and the returned unsubscribe function automatically on unmount or whenever event/handler change. Use this instead of calling tracker.on()/off() directly inside useEffect.",
+      "Real data-fetching — a thin wrapper over @tanstack/react-query's useQuery, handing your queryFn the real client instead of making you pull it from context yourself. Every domain hook (useCurrentUser, useSessions, ...) is built on this.",
     params: [
       {
-        name: "event",
-        type: "TrackerEventName",
+        name: "queryKey",
+        type: "readonly unknown[]",
         required: true,
-        description: "The event name to subscribe to.",
+        description: "A real react-query cache key.",
       },
       {
-        name: "handler",
-        type: "(payload: T) => void",
+        name: "queryFn",
+        type: "(client: KvlClient) => Promise<T>",
         required: true,
-        description:
-          "Called with the event's payload. Pass a type parameter to useEvents<T> to type it precisely.",
+        description: "Your real fetch call.",
       },
     ],
     returns: {
-      type: "void",
-      description: "This hook has no return value — its effect is the subscription itself.",
+      type: "UseQueryResult<T>",
+      description:
+        "The real react-query result object: data, isLoading, isError, error, refetch, ...",
     },
     example: {
       language: "tsx",
-      filename: "MovementLogger.tsx",
-      code: `import { useState } from "react";
-import { useEvents } from "@bodytracker/react";
+      filename: "Sessions.tsx",
+      code: `import { useQuery } from "@kvl/react";
 
-interface ActivityChangedPayload {
-  from: string;
-  to: string;
-  timestamp: string;
-}
-
-export function MovementLogger() {
-  const [log, setLog] = useState<string[]>([]);
-
-  useEvents<ActivityChangedPayload>("activityChanged", (payload) => {
-    setLog((prev) => [...prev, \`\${payload.from} -> \${payload.to}\`]);
-  });
-
-  return (
-    <ul>
-      {log.map((entry, i) => (
-        <li key={i}>{entry}</li>
-      ))}
-    </ul>
-  );
-}
+const { data, isLoading } = useQuery(["sessions"], (client) => client.sessions.list());
 `,
     },
-    since: "2.0.0",
+    since: "0.1.0",
   },
   {
-    id: "use-analytics",
-    name: "useAnalytics()",
-    signature: "function useAnalytics(): UseAnalyticsResult",
-    description:
-      "Aggregates historical session data for the current API key into summary analytics — total sessions, total tracked minutes, the most frequent activity, and an overall average quality — useful for dashboards and progress views.",
-    params: [],
+    id: "use-mutation",
+    name: "useMutation()",
+    signature:
+      "function useMutation<TData, TVariables>(mutationFn: (client: KvlClient, variables: TVariables) => Promise<TData>, options?): UseMutationResult<TData, unknown, TVariables>",
+    description: "Real mutations — a thin wrapper over @tanstack/react-query's useMutation.",
+    params: [
+      {
+        name: "mutationFn",
+        type: "(client, variables) => Promise<TData>",
+        required: true,
+        description: "Your real write call.",
+      },
+    ],
     returns: {
-      type: "UseAnalyticsResult",
-      description: "Aggregate stats computed from all sessions recorded under the current API key.",
-      fields: [
-        {
-          name: "totalSessions",
-          type: "number",
-          required: true,
-          description: "The total number of completed sessions.",
-        },
-        {
-          name: "totalMinutes",
-          type: "number",
-          required: true,
-          description: "The sum of every completed session's duration, in minutes.",
-        },
-        {
-          name: "mostFrequentActivity",
-          type: "ActivityType | null",
-          required: true,
-          description:
-            "The activity recorded most often, or null if no sessions have completed yet.",
-        },
-        {
-          name: "averageQuality",
-          type: "QualityLevel",
-          required: true,
-          description: "The average tracking quality across all completed sessions.",
-        },
-      ],
+      type: "UseMutationResult",
+      description: "mutate, mutateAsync, isPending, isSuccess, isError, ...",
     },
     example: {
       language: "tsx",
-      filename: "AnalyticsSummary.tsx",
-      code: `import { useAnalytics } from "@bodytracker/react";
+      filename: "RevokeKey.tsx",
+      code: `import { useMutation } from "@kvl/react";
 
-export function AnalyticsSummary() {
-  const { totalSessions, totalMinutes, mostFrequentActivity, averageQuality } = useAnalytics();
-
-  return (
-    <dl>
-      <dt>Sessions</dt>
-      <dd>{totalSessions}</dd>
-      <dt>Total time tracked</dt>
-      <dd>{totalMinutes} min</dd>
-      <dt>Most frequent activity</dt>
-      <dd>{mostFrequentActivity ?? "—"}</dd>
-      <dt>Average quality</dt>
-      <dd>{averageQuality}</dd>
-    </dl>
-  );
-}
+const revoke = useMutation((client, id: string) => client.apiKeys.revoke(id));
+revoke.mutate(keyId);
 `,
     },
-    since: "3.0.0",
+    since: "0.1.0",
+  },
+  {
+    id: "use-infinite-query",
+    name: "useInfiniteQuery()",
+    signature:
+      "function useInfiniteQuery<T>(queryKey, queryFn: (client, cursor) => Promise<PageResult<T>>, options?)",
+    description:
+      "Real cursor pagination for the resource methods that return the SDK's real PageResult<T> shape (client.sessions.list, client.apiKeys.list — not the handful of real routes whose pagination lives in the response's meta instead of data, like client.reports.list; see that method's own note).",
+    params: [
+      {
+        name: "queryFn",
+        type: "(client, cursor) => Promise<PageResult<T>>",
+        required: true,
+        description: "Uses the real nextCursor as the next page param.",
+      },
+    ],
+    returns: {
+      type: "UseInfiniteQueryResult",
+      description: "data.pages, fetchNextPage, hasNextPage, ...",
+    },
+    example: {
+      language: "tsx",
+      filename: "SessionList.tsx",
+      code: `import { useInfiniteQuery } from "@kvl/react";
+
+const { data, fetchNextPage, hasNextPage } = useInfiniteQuery(
+  ["sessions"],
+  (client, cursor) => client.sessions.list({ cursor }),
+);
+`,
+    },
+    since: "0.1.0",
+  },
+  {
+    id: "use-subscription",
+    name: "useSubscription()",
+    signature: "function useSubscription<T>(pattern: string, handler: EventHandler<T>): void",
+    description:
+      "Subscribes to any real client event for the component's lifetime, unsubscribing automatically on unmount — the real equivalent of a generic subscription hook, wired to genuine KvlClient events (request lifecycle, auth, real-time), not a fabricated protocol.",
+    params: [
+      {
+        name: "pattern",
+        type: "string",
+        required: true,
+        description: 'An exact event name, "namespace.*", or "*".',
+      },
+      {
+        name: "handler",
+        type: "EventHandler<T>",
+        required: true,
+        description: "Always the latest render's handler is called.",
+      },
+    ],
+    returns: { type: "void", description: "No return value." },
+    example: {
+      language: "tsx",
+      filename: "Toasts.tsx",
+      code: `import { useSubscription } from "@kvl/react";
+
+useSubscription("request.error", ({ error }) => toast.error(error.message));
+`,
+    },
+    since: "0.1.0",
+  },
+  {
+    id: "use-realtime",
+    name: "useRealtime()",
+    signature:
+      "function useRealtime(sessionId: string | undefined): { isConnected: boolean; lastEvent: RealtimeEvent | null }",
+    description:
+      "Connects to the real tracking-session SSE stream for as long as the component is mounted with a given sessionId, disconnecting automatically on unmount or when sessionId changes. No presence or typing-indicator data — this app has no such server-side capability, and this hook never fabricates it.",
+    params: [
+      {
+        name: "sessionId",
+        type: "string | undefined",
+        required: true,
+        description: "Pass undefined to stay disconnected.",
+      },
+    ],
+    returns: {
+      type: "{ isConnected, lastEvent }",
+      description: "Real connection status and the most recent real tracking event.",
+    },
+    example: {
+      language: "tsx",
+      filename: "LiveSession.tsx",
+      code: `import { useRealtime } from "@kvl/react";
+
+const { isConnected, lastEvent } = useRealtime(session.id);
+`,
+    },
+    since: "0.1.0",
+  },
+  {
+    id: "use-current-user",
+    name: "useCurrentUser()",
+    signature: "function useCurrentUser(): UseQueryResult<User>",
+    description: "The real signed-in user — GET /users/me, via useQuery.",
+    params: [],
+    returns: { type: "UseQueryResult<User>", description: "The real user object once resolved." },
+    example: {
+      language: "tsx",
+      filename: "Avatar.tsx",
+      code: `import { useCurrentUser } from "@kvl/react";
+
+const { data: user } = useCurrentUser();
+`,
+    },
+    since: "0.1.0",
+  },
+  {
+    id: "use-login",
+    name: "useLogin()",
+    signature:
+      "function useLogin(): UseMutationResult<LoginResult, unknown, { email: string; password: string }>",
+    description:
+      "Real POST /auth/login as a mutation. Invalidates every cached query on success, since a new session means every previously-fetched org-scoped result is stale.",
+    params: [],
+    returns: {
+      type: "UseMutationResult",
+      description: "mutate({ email, password }), isSuccess, ...",
+    },
+    example: {
+      language: "tsx",
+      filename: "LoginForm.tsx",
+      code: `import { useLogin } from "@kvl/react";
+
+const login = useLogin();
+await login.mutateAsync({ email, password });
+`,
+    },
+    since: "0.1.0",
   },
 ];

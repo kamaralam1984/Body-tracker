@@ -8,51 +8,40 @@ const HEADINGS: TocHeading[] = [
   { id: "overview", text: "Overview", depth: 2 },
   { id: "requirements", text: "Requirements", depth: 2 },
   { id: "quick-start", text: "Quick Start", depth: 2 },
-  { id: "your-first-session", text: "Your First Session", depth: 2 },
+  { id: "your-first-tracking-session", text: "Your First Tracking Session", depth: 2 },
   { id: "next-steps", text: "Next Steps", depth: 2 },
 ];
 
-const QUICK_START_CODE = `import { BodyTracker } from "@bodytracker/sdk";
+const QUICK_START_CODE = `import { KvlClient } from "@kvl/sdk";
 
-const tracker = new BodyTracker({ apiKey: "bt_live_51H8x...redacted" });
-
-await tracker.init();
-
-const session = await tracker.startSession({ activity: "walking" });
-
-tracker.on("movementChanged", (event) => {
-  console.log("Movement changed:", event);
+const client = new KvlClient({
+  baseUrl: "https://bodytracker.kvlbusinesssolutions.com/api/v1",
+  auth: { type: "apiKey", apiKey: "sk_live_...redacted" },
 });
 
-await tracker.stopSession();
-tracker.destroy();
+const { items, total } = await client.sessions.list({ limit: 10 });
+console.log(\`\${total} sessions, showing \${items.length}\`);
+
+client.on("request.error", ({ error }) => console.error(error));
 `;
 
-const FIRST_SESSION_CODE = `import { BodyTracker } from "@bodytracker/sdk";
+const FIRST_SESSION_CODE = `import { KvlClient } from "@kvl/sdk";
 
-const tracker = new BodyTracker({ apiKey: "bt_live_9F2ke...redacted" });
+const client = new KvlClient({ auth: { type: "none" } });
+await client.login("owner@example.com", "correct-password");
 
-await tracker.init();
+const session = await client.sessions.create({ title: "Morning run", activityKind: "running" });
+await client.tracking.start(session.id);
 
-tracker.on("sessionStarted", (session) => {
-  console.log("Session started:", session);
-});
+// Real-time: subscribe to real events pushed over the session's SSE stream.
+client.realtime.on("tracking.rep", (payload) => console.log("rep recorded:", payload));
+const disconnect = client.realtime.connect(session.id);
 
-tracker.on("sessionEnded", (summary) => {
-  console.log("Session ended:", summary);
-});
+await client.tracking.recordRep(session.id, { formScore: 91 });
 
-const session = await tracker.startSession({
-  activity: "running",
-  label: "Morning run",
-});
-
-// Poll the current activity snapshot at any point during tracking.
-const snapshot = tracker.getActivity();
-console.log(\`Currently \${snapshot.activity}, quality: \${snapshot.quality}\`);
-
-const summary = await tracker.stopSession();
-console.log(\`Recorded \${summary.durationSeconds}s of \${summary.activity}\`);
+const stopped = await client.tracking.stop(session.id);
+console.log(\`Session \${stopped.id} completed, \${stopped.repCount} reps recorded\`);
+disconnect();
 `;
 
 export default function GettingStartedPage() {
@@ -62,8 +51,8 @@ export default function GettingStartedPage() {
         <div className="flex flex-col gap-3">
           <h1 className="text-foreground text-3xl font-bold tracking-tight">Getting Started</h1>
           <p className="text-muted-foreground text-lg">
-            Add real-time body tracking, activity detection, and session analytics to your app in a
-            few minutes.
+            Wrap every real Body Tracker REST API endpoint, auth flow, and real-time tracking event
+            behind a clean, strongly-typed client — in a few minutes.
           </p>
         </div>
 
@@ -72,22 +61,28 @@ export default function GettingStartedPage() {
             Overview
           </h2>
           <p className="text-foreground/90 leading-relaxed">
-            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
-              @bodytracker/sdk
-            </code>{" "}
-            is a framework-agnostic JavaScript SDK for real-time body tracking in the browser. It
-            turns a device camera feed into structured activity data — standing, walking, running,
-            sitting — along with movement quality signals and session analytics, so you can build
-            fitness, physical-therapy, or motion-aware products without training or hosting your own
-            computer-vision models.
+            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">@kvl/sdk</code>{" "}
+            is the official TypeScript SDK for the real Body Tracker REST API — sessions, live
+            tracking, analytics, reports, webhooks, API keys, organizations, users, OAuth2, service
+            accounts, notifications, the Security Center, and platform administration. Every method
+            is generated against the real, live OpenAPI schema this API serves at{" "}
+            <Link
+              href="/docs/api-explorer"
+              className="text-accent font-medium underline underline-offset-4"
+            >
+              /api/v1/openapi.json
+            </Link>{" "}
+            — nothing here can silently drift from what the server actually does.
           </p>
           <p className="text-foreground/90 leading-relaxed">
-            The core package has no UI and no framework dependencies. If you&apos;re building with
+            The core package has no UI and no framework dependency. If you&apos;re building with
             React, pair it with{" "}
+            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">@kvl/react</code>{" "}
+            for real hooks (useQuery, useMutation, useCurrentUser, useRealtime, ...) built on{" "}
             <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
-              @bodytracker/react
-            </code>{" "}
-            for hooks and components that wrap the same tracker instance.
+              @tanstack/react-query
+            </code>
+            .
           </p>
         </section>
 
@@ -96,19 +91,28 @@ export default function GettingStartedPage() {
             Requirements
           </h2>
           <ul className="text-foreground/90 flex list-disc flex-col gap-2 pl-5 leading-relaxed">
-            <li>Node.js 18 or later for your build tooling.</li>
             <li>
-              A browser with camera access — the SDK requests permission via{" "}
+              Node.js 18+ (for its real global{" "}
+              <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">fetch</code>)
+              or any modern browser.
+            </li>
+            <li>
+              A real API key (
+              <Link
+                href="/docs/authentication"
+                className="text-accent font-medium underline underline-offset-4"
+              >
+                Authentication
+              </Link>
+              ) or a real user session — no camera, no device permissions needed by the SDK itself.
+            </li>
+            <li>
+              React 18+ if you use{" "}
               <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
-                getUserMedia
+                @kvl/react
               </code>
               .
             </li>
-            <li>
-              A modern browser: the latest two versions of Chrome, Edge, Safari, or Firefox. Older
-              browsers may lack the WebGL and WebAssembly features tracking relies on.
-            </li>
-            <li>A BodyTracker API key — grab one from the dashboard after signing up.</li>
           </ul>
         </section>
 
@@ -117,33 +121,21 @@ export default function GettingStartedPage() {
             Quick Start
           </h2>
           <p className="text-foreground/90 leading-relaxed">
-            Install the package, then initialize a tracker, start a session, and listen for movement
-            updates:
+            Construct a client with a real API key and list your organization&apos;s real sessions:
           </p>
-          <CodeBlock code={QUICK_START_CODE} language="typescript" filename="tracker.ts" />
+          <CodeBlock code={QUICK_START_CODE} language="typescript" filename="client.ts" />
         </section>
 
         <section className="flex flex-col gap-4">
           <h2
-            id="your-first-session"
+            id="your-first-tracking-session"
             className="text-foreground scroll-mt-24 text-2xl font-semibold"
           >
-            Your First Session
+            Your First Tracking Session
           </h2>
           <p className="text-foreground/90 leading-relaxed">
-            A session represents one continuous tracking window. Listen for{" "}
-            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
-              sessionStarted
-            </code>{" "}
-            and{" "}
-            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
-              sessionEnded
-            </code>{" "}
-            to react to lifecycle changes, and call{" "}
-            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
-              getActivity()
-            </code>{" "}
-            at any point to read the current activity and tracking quality:
+            Log in, create a real tracking session, start it, subscribe to real live events over the
+            session&apos;s SSE stream, record a rep, then stop it:
           </p>
           <CodeBlock code={FIRST_SESSION_CODE} language="typescript" filename="first-session.ts" />
         </section>
@@ -163,19 +155,19 @@ export default function GettingStartedPage() {
               </Link>{" "}
               for package-manager specific setup, browse the{" "}
               <Link
-                href="/docs/api-reference"
+                href="/docs/api-explorer"
                 className="text-accent font-medium underline underline-offset-4"
               >
-                API Reference
+                API Explorer
               </Link>{" "}
-              for every method and event, or explore{" "}
+              for every real REST endpoint, or the{" "}
               <Link
-                href="/docs/examples"
+                href="/docs/sdk-reference"
                 className="text-accent font-medium underline underline-offset-4"
               >
-                Examples
+                SDK Reference
               </Link>{" "}
-              for full framework integrations.
+              for the client&apos;s own methods.
             </p>
           </Alert>
         </section>

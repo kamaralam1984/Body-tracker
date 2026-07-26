@@ -2,15 +2,15 @@ import { DOCS_NAV } from "./docs-nav";
 import type { SearchIndexEntry } from "../types";
 
 const PAGE_DESCRIPTIONS: Record<string, string> = {
-  "/docs": "What the Body Tracker SDK is, what it does, and where to start.",
+  "/docs": "What @kvl/sdk is, what it wraps, and where to start.",
   "/docs/getting-started": "Requirements, quick start, and your first tracking session.",
   "/docs/installation": "Install via npm, yarn, pnpm, bun, or the CDN build.",
-  "/docs/authentication": "API keys, environments, and securing your integration.",
+  "/docs/authentication": "API keys, user sessions, OAuth2, and automatic token refresh.",
   "/docs/sdk-reference":
-    "Initialization, configuration, lifecycle, utilities, constants, and types.",
-  "/docs/api-reference": "Every method on the BodyTracker client, fully documented.",
-  "/docs/hooks": "React hooks for tracking, sessions, camera, activity, events, and analytics.",
-  "/docs/events": "Every event the SDK emits, with payload shapes and examples.",
+    "KvlClient construction, configuration, resource namespaces, errors, and retry behavior.",
+  "/docs/api-reference": "Every method on the KvlClient class, fully documented.",
+  "/docs/hooks": "React hooks for auth, data-fetching, real-time, and file uploads.",
+  "/docs/events": "Every event the client emits, with payload shapes and examples.",
   "/docs/examples": "Copy-paste integration examples across frameworks.",
   "/docs/tutorials": "Guided walkthroughs from beginner to production deployment.",
   "/docs/playground": "Configure the SDK interactively and see the generated code.",

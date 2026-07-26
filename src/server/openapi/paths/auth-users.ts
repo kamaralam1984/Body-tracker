@@ -34,6 +34,8 @@ const userSchema = {
     name: { type: "string" },
     role: { type: "string", enum: ["owner", "admin", "manager", "member", "viewer"] },
     status: { type: "string", enum: ["active", "invited", "suspended"] },
+    isPlatformAdmin: { type: "boolean" },
+    avatarUrl: { type: ["string", "null"] },
     createdAt: { type: "string", format: "date-time" },
   },
 };
@@ -172,6 +174,50 @@ export const authUsersPaths: OpenApiDocument["paths"] = {
       responses: {
         "200": {
           description: "Updated profile",
+          content: {
+            "application/json": { schema: { type: "object", properties: { data: userSchema } } },
+          },
+        },
+        default: errorResponse,
+      },
+    },
+  },
+  "/users/me/avatar": {
+    post: {
+      tags: ["Users"],
+      summary: "Upload the current user's avatar (real single-file upload, ≤5MB)",
+      description:
+        "Real image upload — png/jpeg/webp/gif, stored on disk and served back from /api/v1/uploads/avatars/{filename}. Chunked/resumable upload isn't supported (out of scope — this covers the real use case of a single small profile image).",
+      security: [{ bearerAuth: [] }, { apiKeyAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          "multipart/form-data": {
+            schema: {
+              type: "object",
+              properties: { file: { type: "string", format: "binary" } },
+              required: ["file"],
+            },
+          },
+        },
+      },
+      responses: {
+        "200": {
+          description: "Updated profile with the new avatarUrl",
+          content: {
+            "application/json": { schema: { type: "object", properties: { data: userSchema } } },
+          },
+        },
+        default: errorResponse,
+      },
+    },
+    delete: {
+      tags: ["Users"],
+      summary: "Remove the current user's avatar",
+      security: [{ bearerAuth: [] }, { apiKeyAuth: [] }],
+      responses: {
+        "200": {
+          description: "Updated profile with avatarUrl cleared",
           content: {
             "application/json": { schema: { type: "object", properties: { data: userSchema } } },
           },

@@ -151,6 +151,11 @@ model User {
   // leaked machine credential can never reach cross-org data even if its
   // owner is a platform admin. Seed-only for now (no self-serve grant UI).
   isPlatformAdmin Boolean    @default(false)
+  // Served via a dedicated real API route (src/app/api/v1/uploads/avatars/[filename]/route.ts),
+  // never Next.js's `public/` static serving — the production standalone
+  // build copies a build-time snapshot of `public/`, so a runtime upload
+  // written there would never actually be reachable by that route.
+  avatarUrl       String?
   createdAt       DateTime   @default(now())
 
   organization            Organization             @relation(fields: [orgId], references: [id], onDelete: Cascade)

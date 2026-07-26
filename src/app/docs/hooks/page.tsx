@@ -17,33 +17,31 @@ export default function HooksPage() {
         <div className="flex flex-col gap-3">
           <h1 className="text-foreground text-3xl font-bold tracking-tight">React Hooks</h1>
           <p className="text-muted-foreground text-lg">
+            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">@kvl/react</code>{" "}
+            wraps a shared, real{" "}
+            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">KvlClient</code>{" "}
+            with hooks built on{" "}
             <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
-              @bodytracker/react
+              @tanstack/react-query
             </code>{" "}
-            wraps a shared{" "}
-            <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-[13px]">
-              BodyTracker
-            </code>{" "}
-            instance with hooks that read tracker state reactively instead of polling the imperative
-            methods in the{" "}
+            — real caching, dedup, and background refetch, not a reinvented engine. See the{" "}
             <a
               href="/docs/api-reference"
               className="text-accent font-medium underline underline-offset-4"
             >
               API Reference
-            </a>
-            . Every hook below reads from the same underlying tracker, provided once near the root
-            of your component tree.
+            </a>{" "}
+            for the client itself.
           </p>
         </div>
 
         <Alert variant="info" title="Requires a provider">
           <p>
             All hooks on this page expect a{" "}
-            <code className="font-mono text-[13px]">&lt;BodyTrackerProvider&gt;</code> somewhere
-            above them in the tree, constructed once with your{" "}
-            <code className="font-mono text-[13px]">BodyTrackerConfig</code>. Calling a hook outside
-            a provider throws at render time.
+            <code className="font-mono text-[13px]">&lt;KvlProvider client={"{client}"}&gt;</code>{" "}
+            somewhere above them in the tree, constructed once with your real{" "}
+            <code className="font-mono text-[13px]">KvlClient</code>. Calling a hook outside a
+            provider throws a clear error at render time.
           </p>
         </Alert>
 

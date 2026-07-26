@@ -6,17 +6,16 @@ import { ArrowRight, GitBranch } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CodeBlock, DOCS_NAV, SDK_GITHUB_URL, SDK_VERSION } from "@/features/docs";
 
-const QUICK_START_SNIPPET = `import { BodyTracker } from "@bodytracker/sdk";
+const QUICK_START_SNIPPET = `import { KvlClient } from "@kvl/sdk";
 
-const tracker = new BodyTracker({ apiKey: "bt_live_51H8x..." });
-
-await tracker.init();
-
-const session = await tracker.startSession({ activity: "walking" });
-
-tracker.on("movementChanged", (event) => {
-  console.log("Movement changed:", event);
+const client = new KvlClient({
+  auth: { type: "apiKey", apiKey: "sk_live_..." },
 });
+
+const { items, total } = await client.sessions.list({ limit: 10 });
+console.log(\`\${total} sessions, showing \${items.length}\`);
+
+client.on("request.error", ({ error }) => console.error(error));
 `;
 
 const EASE = [0.16, 1, 0.3, 1] as const;
@@ -34,11 +33,11 @@ export default function DocsIntroPage() {
           v{SDK_VERSION} · Latest release
         </span>
         <h1 className="text-foreground max-w-3xl text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
-          Real-time body tracking, built for developers.
+          The official Body Tracker SDK, built for developers.
         </h1>
         <p className="text-muted-foreground max-w-2xl text-lg leading-relaxed">
-          @bodytracker/sdk brings camera-based movement tracking, activity detection, and session
-          analytics to any web app — a few lines of code, no ML expertise required.
+          @kvl/sdk wraps every real REST endpoint, auth flow, and real-time tracking event behind a
+          clean, strongly-typed client — for the browser, Node, and React.
         </p>
         <div className="flex flex-wrap items-center gap-3">
           <Button variant="primary" size="lg" asChild>
