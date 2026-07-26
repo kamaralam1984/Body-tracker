@@ -6,7 +6,19 @@ export type ApiErrorCode =
   | "not_found"
   | "conflict"
   | "rate_limited"
-  | "internal_error";
+  | "internal_error"
+  // Specific auth-failure codes for API-key/Bearer authentication (see
+  // resolvePrincipal() in src/server/http/principal.ts) — more diagnostic
+  // than the generic "unauthorized"/"forbidden" above, so a real client
+  // integration can branch on exactly what went wrong instead of just
+  // getting a 401/403 with no further signal.
+  | "invalid_api_key"
+  | "expired_key"
+  | "revoked_key"
+  | "insufficient_scope"
+  | "ip_not_allowed"
+  | "invalid_origin"
+  | "environment_mismatch";
 
 const STATUS_BY_CODE: Record<ApiErrorCode, number> = {
   bad_request: 400,
@@ -17,6 +29,13 @@ const STATUS_BY_CODE: Record<ApiErrorCode, number> = {
   conflict: 409,
   rate_limited: 429,
   internal_error: 500,
+  invalid_api_key: 401,
+  expired_key: 401,
+  revoked_key: 401,
+  insufficient_scope: 403,
+  ip_not_allowed: 403,
+  invalid_origin: 403,
+  environment_mismatch: 400,
 };
 
 export class ApiError extends Error {

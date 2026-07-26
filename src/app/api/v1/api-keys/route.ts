@@ -1,8 +1,10 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
+import ipaddr from "ipaddr.js";
 import { getPrisma } from "@/server/db/prisma";
 import { resolvePrincipal, requireScope, rateLimitResponseHeaders } from "@/server/http/principal";
 import { ok, errorResponse } from "@/server/http/respond";
+import { badRequest } from "@/server/http/errors";
 import { parseJsonBody, parseQuery } from "@/server/http/validate";
 import { paginate } from "@/server/http/pagination";
 import { parseSort, searchWhere } from "@/server/http/sort";
@@ -46,6 +48,15 @@ export async function GET(request: NextRequest) {
   }
 }
 
+function isValidIpOrCidr(entry: string): boolean {
+  return entry.includes("/") ? ipaddr.isValidCIDR(entry) : ipaddr.isValid(entry);
+}
+
+function isValidOriginPattern(entry: string): boolean {
+  const hostnamePart = entry.startsWith("*.") ? entry.slice(2) : entry;
+  return hostnamePart.length > 0 && !hostnamePart.includes("/") && !hostnamePart.includes(" ");
+}
+
 export const createSchema = z.object({
   name: z.string().min(1),
   scopes: z
@@ -56,6 +67,23 @@ export const createSchema = z.object({
     })
     .transform((arr) => arr as Scope[]),
   rateLimitPerMinute: z.number().int().positive().default(120),
+  // Never-expires when omitted (today's existing behavior). A concrete
+  // ISO date — the UI computes this from a Never/30d/90d/180d/365d/Custom
+  // picker; the API itself just accepts a real timestamp, not a preset
+  // name, keeping the contract simple for direct API callers too.
+  expiresAt: z.string().datetime().optional(),
+  allowedIps: z
+    .array(z.string())
+    .default([])
+    .refine((arr) => arr.every(isValidIpOrCidr), {
+      message: "allowedIps entries must each be a valid IP address or CIDR range",
+    }),
+  allowedOrigins: z
+    .array(z.string())
+    .default([])
+    .refine((arr) => arr.every(isValidOriginPattern), {
+      message: "allowedOrigins entries must each be a hostname, optionally prefixed with '*.'",
+    }),
 });
 
 export async function POST(request: NextRequest) {
@@ -63,6 +91,10 @@ export async function POST(request: NextRequest) {
     const principal = await resolvePrincipal(request);
     requireScope(principal, "api-keys:write");
     const body = await parseJsonBody(request, createSchema);
+    if (body.expiresAt && new Date(body.expiresAt).getTime() <= Date.now()) {
+      throw badRequest("expiresAt must be in the future");
+    }
+
     const prisma = await getPrisma();
     const { plaintext, prefix, hash } = generateApiKey();
 
@@ -78,7 +110,9 @@ export async function POST(request: NextRequest) {
         rateLimitPerMinute: body.rateLimitPerMinute,
         requestCount: 0,
         lastUsedAt: null,
-        expiresAt: null,
+        expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
+        allowedIps: body.allowedIps,
+        allowedOrigins: body.allowedOrigins,
       },
     });
 

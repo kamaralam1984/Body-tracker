@@ -33,22 +33,46 @@ export interface ConnectedDevice {
 }
 
 // ---------------------------------------------------------------------------
-// Personal API keys — user-scoped tokens, distinct from admin's org-wide
-// `ApiKey` (`@/features/admin`); same masking convention (never show the
-// full secret except a one-time post-creation reveal).
+// Personal API keys — real, backed by `/api/v1/api-keys` (Prisma `ApiKey`,
+// see prisma/schema.prisma). Distinct from `@/features/admin`'s cross-org
+// mock API key view (that one has no real backend equivalent — there's no
+// superadmin/cross-org concept in the real API, see INCOMPLETE.md). Same
+// masking convention as before: never show the full secret except the
+// one-time post-creation reveal (`apiKey` field on the create response).
 // ---------------------------------------------------------------------------
 
 export type PersonalApiKeyStatus = "active" | "revoked";
 
+export const REVOKE_REASONS = [
+  "Compromised",
+  "Unused",
+  "Employee Left",
+  "Testing Complete",
+  "Manual",
+] as const;
+export type RevokeReason = (typeof REVOKE_REASONS)[number];
+
 export interface PersonalApiKey {
   id: string;
+  orgId: string;
+  userId: string | null;
+  serviceAccountId: string | null;
   name: string;
-  prefix: string;
-  lastFour: string;
+  keyPrefix: string;
   scopes: string[];
   status: PersonalApiKeyStatus;
-  createdAt: string;
+  rateLimitPerMinute: number;
+  requestCount: number;
   lastUsedAt: string | null;
+  createdAt: string;
+  expiresAt: string | null;
+  revokedReason: string | null;
+  environment: string;
+  keyType: string;
+  allowedIps: string[];
+  allowedOrigins: string[];
+  gracePeriodEndsAt: string | null;
+  supersedesId: string | null;
 }
 
 // ---------------------------------------------------------------------------

@@ -204,10 +204,38 @@ model ApiKey {
   lastUsedAt         DateTime?
   createdAt          DateTime     @default(now())
   expiresAt          DateTime?
+  revokedReason      String?
+  // "live" for every key issued before this field existed (and the
+  // default for new ones) — matches actual real-world usage today, see
+  // signAccessToken/generateApiKey call sites.
+  environment        String       @default("live")
+  // "secret" (server-side, full scopes) or "publishable" (client-safe,
+  // creation-time forced to read-only-eligible scopes — see
+  // src/app/api/v1/api-keys/route.ts).
+  keyType            String       @default("secret")
+  // CIDR (e.g. "203.0.113.0/24") or exact-IP entries — empty array means
+  // "no restriction" (today's behavior, unchanged for existing keys).
+  allowedIps         String[]
+  // Wildcard-capable origins (e.g. "*.example.com") — empty array means
+  // "no restriction".
+  allowedOrigins     String[]
+  // Set only on the OLD row during a rotation (see
+  // src/app/api/v1/api-keys/[id]/rotate/route.ts) — both this row and its
+  // replacement authenticate successfully until this passes, then a sweep
+  // in src/instrumentation.ts revokes this row. Null for a key that was
+  // never rotated or that IS itself a rotation's replacement.
+  gracePeriodEndsAt  DateTime?
+  // Points at the OLD key this row replaced, if this row was created by a
+  // rotation — real rotation history is derived from AuditLogEntry rows
+  // (action "api-key.rotated"), not a separate table; this column is just
+  // enough to link a still-active grace-period pair together.
+  supersedesId       String?      @unique
 
   organization   Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
   user           User?           @relation(fields: [userId], references: [id], onDelete: Cascade)
   serviceAccount ServiceAccount? @relation(fields: [serviceAccountId], references: [id], onDelete: Cascade)
+  supersedes     ApiKey?         @relation("ApiKeyRotation", fields: [supersedesId], references: [id], onDelete: SetNull)
+  supersededBy   ApiKey?         @relation("ApiKeyRotation")
 
   @@index([orgId])
   @@map("api_keys")
@@ -443,14 +471,20 @@ model WebhookDelivery {
 model AuditLogEntry {
   id        String   @id @default(cuid())
   orgId     String
-  actorId   String
+  // Null for system-initiated events (e.g. the expired/rotated-out API-key
+  // auto-revoke sweep in src/server/services/api-keys-service.ts) — there's
+  // no real human actor to attribute those to, and fabricating one (or
+  // reusing an arbitrary org member's id) would misattribute a real audit
+  // record. `writeAudit()`'s `actorId` param stays required for the many
+  // real human-initiated call sites; only the sweep passes null.
+  actorId   String?
   action    String
   target    String
   metadata  Json
   createdAt DateTime @default(now())
 
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  actor        User         @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  actor        User?        @relation(fields: [actorId], references: [id], onDelete: Cascade)
 
   @@index([orgId, createdAt])
   @@map("audit_log")

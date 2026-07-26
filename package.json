@@ -33,6 +33,7 @@
     "dotenv": "^17.4.2",
     "framer-motion": "^12.42.2",
     "ioredis": "^5.11.1",
+    "ipaddr.js": "^2.4.0",
     "js-yaml": "^5.2.2",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",

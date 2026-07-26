@@ -13,7 +13,6 @@ import type {
   CameraTrackingPrefs,
   LanguageRegionPrefs,
   NotificationPrefs,
-  PersonalApiKey,
   Webhook,
 } from "../types";
 
@@ -35,12 +34,11 @@ interface SettingsState {
   togglePushNotification: (id: string) => void;
 
   // ---- Session-only UI state (NOT persisted) ----
+  // Personal API keys are real now (src/app/api/v1/api-keys) — server
+  // state lives in React Query's cache (see use-settings-queries.ts), not
+  // here. Only the create-dialog's open/closed UI state stays local.
   createApiKeyOpen: boolean;
   setCreateApiKeyOpen: (open: boolean) => void;
-  createdApiKeys: PersonalApiKey[];
-  addCreatedApiKey: (key: PersonalApiKey) => void;
-  revokedApiKeyIds: Set<string>;
-  revokeApiKey: (id: string) => void;
 
   createWebhookOpen: boolean;
   setCreateWebhookOpen: (open: boolean) => void;
@@ -87,10 +85,6 @@ export const useSettingsStore = create<SettingsState>()(
 
       createApiKeyOpen: false,
       setCreateApiKeyOpen: (open) => set({ createApiKeyOpen: open }),
-      createdApiKeys: [],
-      addCreatedApiKey: (key) => set({ createdApiKeys: [key, ...get().createdApiKeys] }),
-      revokedApiKeyIds: new Set(),
-      revokeApiKey: (id) => set({ revokedApiKeyIds: new Set(get().revokedApiKeyIds).add(id) }),
 
       createWebhookOpen: false,
       setCreateWebhookOpen: (open) => set({ createWebhookOpen: open }),

@@ -11,7 +11,6 @@ import type {
   IntegrationDoc,
   LoginHistoryEntry,
   Passkey,
-  PersonalApiKey,
   Webhook,
   WebhookDelivery,
 } from "../types";
@@ -90,72 +89,10 @@ export function fetchDevices(): Promise<ConnectedDevice[]> {
 }
 
 // ---------------------------------------------------------------------------
-// Personal API keys
+// Personal API keys are real now — see src/app/api/v1/api-keys/route.ts and
+// src/features/settings/hooks/use-settings-queries.ts. No mock service here
+// anymore.
 // ---------------------------------------------------------------------------
-
-const SCOPE_POOL = [
-  "read:sessions",
-  "write:sessions",
-  "read:reports",
-  "read:activity",
-  "read:profile",
-];
-
-function buildPersonalApiKeys(): PersonalApiKey[] {
-  return Array.from({ length: 5 }, (_, i) => {
-    const seed = i * 17 + 3;
-    const scopeCount = 1 + Math.floor(seededRandom(seed) * 3);
-    return {
-      id: `PAT-${400 + i}`,
-      name: pick(
-        [
-          "Local development",
-          "CI pipeline",
-          "Zapier integration",
-          "Mobile app",
-          "Analytics export",
-        ],
-        seed + 1,
-      ),
-      prefix: "bt_pat_",
-      lastFour: String(1000 + Math.floor(seededRandom(seed + 2) * 8999)),
-      scopes: Array.from(
-        new Set(Array.from({ length: scopeCount }, (_, s) => pick(SCOPE_POOL, seed + 3 + s))),
-      ),
-      status: seededRandom(seed + 4) > 0.85 ? "revoked" : "active",
-      createdAt: new Date(
-        Date.now() - Math.floor(seededRandom(seed + 5) * 200) * 86_400_000,
-      ).toISOString(),
-      lastUsedAt:
-        seededRandom(seed + 6) > 0.2
-          ? new Date(
-              Date.now() - Math.floor(seededRandom(seed + 7) * 10) * 86_400_000,
-            ).toISOString()
-          : null,
-    };
-  });
-}
-
-const PERSONAL_API_KEYS = buildPersonalApiKeys();
-
-export function fetchPersonalApiKeys(): Promise<PersonalApiKey[]> {
-  return delay(PERSONAL_API_KEYS, 450);
-}
-
-let apiKeyCounter = PERSONAL_API_KEYS.length;
-export function createPersonalApiKey(input: { name: string; scopes: string[] }): PersonalApiKey {
-  apiKeyCounter += 1;
-  return {
-    id: `PAT-${400 + apiKeyCounter}`,
-    name: input.name,
-    prefix: "bt_pat_",
-    lastFour: String(1000 + Math.floor(Math.random() * 8999)),
-    scopes: input.scopes,
-    status: "active",
-    createdAt: new Date().toISOString(),
-    lastUsedAt: null,
-  };
-}
 
 // ---------------------------------------------------------------------------
 // Webhooks

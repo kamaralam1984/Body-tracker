@@ -3,10 +3,12 @@ import { ALL_SCOPES } from "../db/entities";
 import { getPrisma } from "../db/prisma";
 import { hashApiKey } from "../auth/api-keys";
 import { verifyAccessToken } from "../auth/tokens";
-import { ApiError, forbidden, unauthorized } from "./errors";
+import { ApiError, unauthorized } from "./errors";
 import { checkRateLimit, rateLimitHeaders, type RateLimitResult } from "./rate-limit";
 import { beginRequestContext, setRequestPrincipal } from "./request-context";
 import { logger } from "../logging/logger";
+import { isIpAllowed } from "./ip-restriction";
+import { isOriginAllowed } from "./origin-restriction";
 
 export interface Principal {
   userId: string;
@@ -63,7 +65,7 @@ const ROLE_SCOPES: Record<string, Scope[]> = {
 export async function resolvePrincipal(request: Request): Promise<Principal> {
   // Started before the auth check below can throw, so failed-auth attempts
   // (bad/missing header, invalid key, expired token) are still logged.
-  beginRequestContext(request);
+  const requestContext = beginRequestContext(request);
 
   const header = request.headers.get("authorization") ?? "";
   const prisma = await getPrisma();
@@ -72,9 +74,30 @@ export async function resolvePrincipal(request: Request): Promise<Principal> {
     const plaintext = header.slice("ApiKey ".length).trim();
     const hash = hashApiKey(plaintext);
     const key = await prisma.apiKey.findUnique({ where: { keyHash: hash } });
-    if (!key || key.status !== "active") throw unauthorized("Invalid or revoked API key");
+    if (!key) throw new ApiError("invalid_api_key", "The provided API key is invalid.");
+    if (key.status !== "active")
+      throw new ApiError("revoked_key", "This API key has been revoked.");
     if (key.expiresAt && key.expiresAt.getTime() < Date.now())
-      throw unauthorized("API key expired");
+      throw new ApiError("expired_key", "This API key has expired.");
+    // A rotated-out key's grace period passing is checked directly here as
+    // a safety net — the sweep in src/instrumentation.ts flips `status` to
+    // "revoked" once this happens, but only runs every 60s, so this catches
+    // the gap between the deadline passing and the next sweep tick.
+    if (key.gracePeriodEndsAt && key.gracePeriodEndsAt.getTime() < Date.now()) {
+      throw new ApiError("revoked_key", "This API key was rotated and its grace period has ended.");
+    }
+    if (!isIpAllowed(requestContext.ip, key.allowedIps)) {
+      throw new ApiError(
+        "ip_not_allowed",
+        "This request's IP address is not on this API key's allowlist.",
+      );
+    }
+    if (!isOriginAllowed(request, key.allowedOrigins)) {
+      throw new ApiError(
+        "invalid_origin",
+        "This request's origin is not on this API key's allowlist.",
+      );
+    }
 
     // Best-effort usage tracking — doesn't block the request on failure.
     prisma.apiKey
@@ -96,7 +119,10 @@ export async function resolvePrincipal(request: Request): Promise<Principal> {
         where: { id: key.serviceAccountId },
       });
       if (!serviceAccount || serviceAccount.status !== "active") {
-        throw unauthorized("API key's service account not found or disabled");
+        throw new ApiError(
+          "revoked_key",
+          "This API key's service account is disabled or was deleted.",
+        );
       }
 
       setRequestPrincipal({ orgId: key.orgId, userId: serviceAccount.id, apiKeyId: key.id });
@@ -114,7 +140,7 @@ export async function resolvePrincipal(request: Request): Promise<Principal> {
     }
 
     const user = key.userId ? await prisma.user.findUnique({ where: { id: key.userId } }) : null;
-    if (!user) throw unauthorized("API key owner not found");
+    if (!user) throw new ApiError("invalid_api_key", "This API key's owner no longer exists.");
 
     setRequestPrincipal({ orgId: key.orgId, userId: user.id, apiKeyId: key.id });
 
@@ -161,7 +187,7 @@ export async function resolvePrincipal(request: Request): Promise<Principal> {
 
 export function requireScope(principal: Principal, scope: Scope) {
   if (!principal.scopes.includes(scope)) {
-    throw forbidden(`Missing required scope: ${scope}`);
+    throw new ApiError("insufficient_scope", `Missing required scope: ${scope}`);
   }
 }
 

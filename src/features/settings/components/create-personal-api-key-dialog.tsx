@@ -1,19 +1,12 @@
 "use client";
 
 /**
- * Create-personal-access-token flow, mirroring the one-time secret reveal
- * pattern established in `@/features/admin/components/create-api-key-dialog`:
- * after `createPersonalApiKey()` returns, the modal does NOT close — it
- * swaps into a "Copy your token now" panel showing the full value, since
- * that's the one and only moment this UI ever shows the complete secret.
- * Every other surface (the settings table, etc.) only ever renders
- * `{prefix}••••{lastFour}`.
- *
- * The mock factory doesn't generate a real full secret — only a `prefix`
- * and `lastFour` — so the "full token" shown in the reveal panel is
- * synthesized here purely for the one-time display (`{prefix}` + 24
- * masked-looking characters + `{lastFour}`); it is never stored anywhere
- * and never rendered again after this dialog closes.
+ * Real create-personal-access-token flow against `/api/v1/api-keys`
+ * (`useCreatePersonalApiKeyMutation`). After it returns, the modal does NOT
+ * close — it swaps into a "Copy your token now" panel showing the REAL
+ * one-time secret (`apiKey` field on the response) — the one and only
+ * moment this UI ever shows the complete secret. Every other surface (the
+ * settings table, etc.) only ever renders `{keyPrefix}…`.
  *
  * <CreatePersonalApiKeyDialog />
  */
@@ -24,31 +17,51 @@ import { Modal } from "@/components/ui/modal";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Select } from "@/components/ui/select";
 import { toast } from "@/components/ui/toast";
-import { createPersonalApiKey, useSettingsStore } from "@/features/settings";
-import type { PersonalApiKey } from "@/features/settings";
+import { useSettingsStore } from "@/features/settings";
+import {
+  useCreatePersonalApiKeyMutation,
+  type CreateApiKeyResult,
+} from "../hooks/use-settings-queries";
+import { ALL_SCOPES } from "@/server/db/entities";
 
-const SCOPE_POOL = [
-  "read:sessions",
-  "write:sessions",
-  "read:reports",
-  "read:activity",
-  "read:profile",
+type ExpirationPreset = "never" | "30" | "90" | "180" | "365" | "custom";
+
+const EXPIRATION_OPTIONS = [
+  { value: "never", label: "Never expires" },
+  { value: "30", label: "30 days" },
+  { value: "90", label: "90 days" },
+  { value: "180", label: "180 days" },
+  { value: "365", label: "365 days" },
+  { value: "custom", label: "Custom date" },
 ];
 
-function synthesizeFullKey(key: PersonalApiKey): string {
-  return `${key.prefix}${"x".repeat(24)}${key.lastFour}`;
+function expirationToIsoDate(preset: ExpirationPreset, customDate: string): string | undefined {
+  if (preset === "never") return undefined;
+  if (preset === "custom") return customDate ? new Date(customDate).toISOString() : undefined;
+  const days = Number(preset);
+  return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
 }
 
 export function CreatePersonalApiKeyDialog() {
   const createApiKeyOpen = useSettingsStore((state) => state.createApiKeyOpen);
   const setCreateApiKeyOpen = useSettingsStore((state) => state.setCreateApiKeyOpen);
-  const addCreatedApiKey = useSettingsStore((state) => state.addCreatedApiKey);
+  const createMutation = useCreatePersonalApiKeyMutation();
 
   const [name, setName] = useState("");
   const [scopes, setScopes] = useState<Set<string>>(new Set());
-  const [createdKey, setCreatedKey] = useState<PersonalApiKey | null>(null);
+  const [expirationPreset, setExpirationPreset] = useState<ExpirationPreset>("never");
+  const [customDate, setCustomDate] = useState("");
+  const [createdKey, setCreatedKey] = useState<CreateApiKeyResult | null>(null);
   const [copied, setCopied] = useState(false);
+  // A `useState` lazy initializer (not `useMemo`) is the sanctioned way to
+  // run a one-time impure computation like `Date.now()` at mount — its
+  // factory is documented to run exactly once, unlike `useMemo`, which the
+  // React Compiler's purity check disallows wrapping impure calls in.
+  const [minCustomDate] = useState(() =>
+    new Date(Date.now() + 86_400_000).toISOString().slice(0, 10),
+  );
 
   function toggleScope(scope: string) {
     setScopes((prev) => {
@@ -62,6 +75,8 @@ export function CreatePersonalApiKeyDialog() {
   function reset() {
     setName("");
     setScopes(new Set());
+    setExpirationPreset("never");
+    setCustomDate("");
     setCreatedKey(null);
     setCopied(false);
   }
@@ -71,11 +86,18 @@ export function CreatePersonalApiKeyDialog() {
     setCreateApiKeyOpen(false);
   }
 
-  function handleSubmit() {
+  async function handleSubmit() {
     if (!name.trim() || scopes.size === 0) return;
-    const record = createPersonalApiKey({ name: name.trim(), scopes: Array.from(scopes) });
-    addCreatedApiKey(record);
-    setCreatedKey(record);
+    try {
+      const result = await createMutation.mutateAsync({
+        name: name.trim(),
+        scopes: Array.from(scopes),
+        expiresAt: expirationToIsoDate(expirationPreset, customDate),
+      });
+      setCreatedKey(result);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to create token");
+    }
   }
 
   function handleDone() {
@@ -85,12 +107,15 @@ export function CreatePersonalApiKeyDialog() {
 
   async function handleCopy() {
     if (!createdKey) return;
-    await navigator.clipboard.writeText(synthesizeFullKey(createdKey));
+    await navigator.clipboard.writeText(createdKey.apiKey);
     setCopied(true);
     toast.success("Copied");
   }
 
-  const canSubmit = Boolean(name.trim()) && scopes.size > 0;
+  const canSubmit =
+    Boolean(name.trim()) &&
+    scopes.size > 0 &&
+    (expirationPreset !== "custom" || Boolean(customDate));
 
   return (
     <Modal
@@ -111,7 +136,7 @@ export function CreatePersonalApiKeyDialog() {
             <Button variant="ghost" onClick={resetAndClose}>
               Cancel
             </Button>
-            <Button onClick={handleSubmit} disabled={!canSubmit}>
+            <Button onClick={handleSubmit} disabled={!canSubmit || createMutation.isPending}>
               Generate token
             </Button>
           </>
@@ -136,7 +161,7 @@ export function CreatePersonalApiKeyDialog() {
               <label className="text-foreground text-sm font-medium">{createdKey.name}</label>
               <div className="flex items-center gap-2">
                 <code className="border-border bg-muted text-foreground flex-1 truncate rounded-md border px-3 py-2 font-mono text-sm">
-                  {synthesizeFullKey(createdKey)}
+                  {createdKey.apiKey}
                 </code>
                 <Button
                   type="button"
@@ -169,9 +194,26 @@ export function CreatePersonalApiKeyDialog() {
             </div>
 
             <div className="flex flex-col gap-1.5">
+              <label className="text-foreground text-sm font-medium">Expiration</label>
+              <Select
+                options={EXPIRATION_OPTIONS}
+                value={expirationPreset}
+                onValueChange={(value) => setExpirationPreset(value as ExpirationPreset)}
+              />
+              {expirationPreset === "custom" && (
+                <Input
+                  type="date"
+                  value={customDate}
+                  onChange={(event) => setCustomDate(event.target.value)}
+                  min={minCustomDate}
+                />
+              )}
+            </div>
+
+            <div className="flex flex-col gap-1.5">
               <label className="text-foreground text-sm font-medium">Scopes</label>
-              <div className="border-border grid grid-cols-1 gap-2 rounded-lg border p-3 sm:grid-cols-2">
-                {SCOPE_POOL.map((scope) => (
+              <div className="border-border grid max-h-56 grid-cols-1 gap-2 overflow-y-auto rounded-lg border p-3 sm:grid-cols-2">
+                {ALL_SCOPES.map((scope) => (
                   <label
                     key={scope}
                     className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-sm"

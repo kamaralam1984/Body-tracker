@@ -9,6 +9,11 @@ import {
   listQuerySchema as apiKeysListQuerySchema,
   createSchema as apiKeysCreateSchema,
 } from "@/app/api/v1/api-keys/route";
+import { rotateSchema } from "@/app/api/v1/api-keys/[id]/rotate/route";
+import {
+  patchSchema as apiKeysPatchSchema,
+  revokeSchema as apiKeysRevokeSchema,
+} from "@/app/api/v1/api-keys/[id]/route";
 
 const errorResponse = {
   description: "Error response",
@@ -270,11 +275,40 @@ export const authUsersPaths: OpenApiDocument["paths"] = {
     },
   },
   "/api-keys/{id}": {
-    delete: {
+    patch: {
       tags: ["API Keys"],
-      summary: "Revoke an API key",
+      summary: "Edit an API key's name or scopes",
+      description:
+        "Scopes were immutable after creation until now. Changing scopes writes a real 'api-key.permission_changed' audit event with the actual before/after scope arrays.",
       security: [{ bearerAuth: [] }, { apiKeyAuth: [] }],
       parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": { schema: schemaRef("ApiKeyPatchRequest", apiKeysPatchSchema) },
+        },
+      },
+      responses: {
+        "200": {
+          description: "The updated API key",
+          content: {
+            "application/json": { schema: { type: "object", properties: { data: apiKeySchema } } },
+          },
+        },
+        default: errorResponse,
+      },
+    },
+    delete: {
+      tags: ["API Keys"],
+      summary: "Revoke an API key, with a reason",
+      security: [{ bearerAuth: [] }, { apiKeyAuth: [] }],
+      parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+      requestBody: {
+        required: false,
+        content: {
+          "application/json": { schema: schemaRef("ApiKeyRevokeRequest", apiKeysRevokeSchema) },
+        },
+      },
       responses: {
         "200": {
           description: "API key revoked",
@@ -296,12 +330,20 @@ export const authUsersPaths: OpenApiDocument["paths"] = {
   "/api-keys/{id}/rotate": {
     post: {
       tags: ["API Keys"],
-      summary: "Rotate an API key's secret, keeping its scopes and id",
+      summary: "Rotate an API key with a real grace period (not an instant swap)",
+      description:
+        "Creates a brand-new key (new secret, same scopes/limits/restrictions) and starts a grace-period countdown on the OLD key — both authenticate successfully until the grace period ends (default 24h, configurable via `graceHours` for testing), then the old one is automatically revoked by the sweep in src/instrumentation.ts.",
       security: [{ bearerAuth: [] }, { apiKeyAuth: [] }],
       parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+      requestBody: {
+        required: false,
+        content: {
+          "application/json": { schema: schemaRef("ApiKeyRotateRequest", rotateSchema) },
+        },
+      },
       responses: {
         "200": {
-          description: "API key rotated — new plaintext secret returned once",
+          description: "New key created — new plaintext secret returned once",
           content: {
             "application/json": {
               schema: {
@@ -309,9 +351,52 @@ export const authUsersPaths: OpenApiDocument["paths"] = {
                 properties: {
                   data: {
                     allOf: [
-                      { type: "object", properties: { apiKey: { type: "string" } } },
+                      {
+                        type: "object",
+                        properties: {
+                          apiKey: { type: "string" },
+                          oldKeyId: { type: "string" },
+                          gracePeriodEndsAt: { type: "string", format: "date-time" },
+                        },
+                      },
                       apiKeySchema,
                     ],
+                  },
+                },
+              },
+            },
+          },
+        },
+        default: errorResponse,
+      },
+    },
+  },
+  "/api-keys/{id}/rotation-history": {
+    get: {
+      tags: ["API Keys"],
+      summary: "Real rotation history for a key, derived from AuditLogEntry (not a separate table)",
+      security: [{ bearerAuth: [] }, { apiKeyAuth: [] }],
+      parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+      responses: {
+        "200": {
+          description: "Rotation events this key was involved in, newest first",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  data: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        rotatedAt: { type: "string", format: "date-time" },
+                        rotatedBy: { type: ["string", "null"] },
+                        newKeyId: { type: "string" },
+                        oldKeyId: { type: ["string", "null"] },
+                        gracePeriodEndsAt: { type: ["string", "null"], format: "date-time" },
+                      },
+                    },
                   },
                 },
               },

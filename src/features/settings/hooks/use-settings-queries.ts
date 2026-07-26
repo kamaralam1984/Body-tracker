@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 import {
   fetchBackupCodes,
@@ -9,11 +9,12 @@ import {
   fetchIntegrations,
   fetchLoginHistory,
   fetchPasskeys,
-  fetchPersonalApiKeys,
   fetchWebhookDeliveries,
   fetchWebhooks,
 } from "../lib/mock-settings-service";
 import { useSettingsStore } from "../store/settings-store";
+import { apiFetchJson } from "@/features/auth/lib/api-client";
+import type { PersonalApiKey, RevokeReason } from "../types";
 
 export function useDevicesQuery() {
   const query = useQuery({ queryKey: ["settings", "devices"], queryFn: fetchDevices });
@@ -28,16 +29,82 @@ export function useDevicesQuery() {
   return { ...query, data };
 }
 
+const API_KEYS_QUERY_KEY = ["settings", "api-keys"];
+
+interface ApiKeyListResponse {
+  items: PersonalApiKey[];
+  nextCursor: string | null;
+  total: number;
+}
+
+/** Real personal API keys (`/api/v1/api-keys`) — this is the caller's own org, since there's no cross-org superadmin concept in the real backend. */
 export function usePersonalApiKeysQuery() {
-  const query = useQuery({ queryKey: ["settings", "api-keys"], queryFn: fetchPersonalApiKeys });
-  const created = useSettingsStore((s) => s.createdApiKeys);
-  const revoked = useSettingsStore((s) => s.revokedApiKeyIds);
-  const data = useMemo(() => {
-    if (!query.data) return query.data;
-    const all = [...created, ...query.data];
-    return all.map((k) => (revoked.has(k.id) ? { ...k, status: "revoked" as const } : k));
-  }, [query.data, created, revoked]);
-  return { ...query, data };
+  const query = useQuery({
+    queryKey: API_KEYS_QUERY_KEY,
+    queryFn: () => apiFetchJson<ApiKeyListResponse>("/api/v1/api-keys?limit=100"),
+  });
+  return { ...query, data: query.data?.items };
+}
+
+export interface CreateApiKeyInput {
+  name: string;
+  scopes: string[];
+  expiresAt?: string;
+  allowedIps?: string[];
+  allowedOrigins?: string[];
+}
+
+export type CreateApiKeyResult = PersonalApiKey & { apiKey: string };
+
+export function useCreatePersonalApiKeyMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateApiKeyInput) =>
+      apiFetchJson<CreateApiKeyResult>("/api/v1/api-keys", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: API_KEYS_QUERY_KEY }),
+  });
+}
+
+export function useRevokePersonalApiKeyMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason?: RevokeReason }) =>
+      apiFetchJson<{ success: true }>(`/api/v1/api-keys/${id}`, {
+        method: "DELETE",
+        body: reason ? JSON.stringify({ reason }) : undefined,
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: API_KEYS_QUERY_KEY }),
+  });
+}
+
+export type RotateApiKeyResult = PersonalApiKey & {
+  apiKey: string;
+  oldKeyId: string;
+  gracePeriodEndsAt: string;
+};
+
+export function useRotatePersonalApiKeyMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetchJson<RotateApiKeyResult>(`/api/v1/api-keys/${id}/rotate`, { method: "POST" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: API_KEYS_QUERY_KEY }),
+  });
+}
+
+export function usePatchPersonalApiKeyScopesMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, scopes }: { id: string; scopes: string[] }) =>
+      apiFetchJson<PersonalApiKey>(`/api/v1/api-keys/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ scopes }),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: API_KEYS_QUERY_KEY }),
+  });
 }
 
 export function useWebhooksQuery() {

@@ -8,8 +8,6 @@ export * from "./lib/settings-search";
 export * from "./lib/privacy-export";
 export {
   fetchDevices,
-  fetchPersonalApiKeys,
-  createPersonalApiKey,
   fetchWebhooks,
   fetchWebhookDeliveries,
   createWebhook,

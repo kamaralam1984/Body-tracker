@@ -9,7 +9,9 @@ import { logger } from "../logging/logger";
  */
 export function writeAudit(input: {
   orgId: string;
-  actorId: string;
+  // null only for system-initiated events (no real human actor) — see the
+  // comment on AuditLogEntry.actorId in prisma/schema.prisma.
+  actorId: string | null;
   action: string;
   target: string;
   metadata?: Record<string, unknown>;
