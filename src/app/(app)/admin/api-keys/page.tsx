@@ -14,19 +14,51 @@
 import { useState } from "react";
 import { Layers } from "lucide-react";
 import { Select } from "@/components/ui/select";
+import { Alert } from "@/components/ui/alert";
 import {
   usePlatformOrganizationsQuery,
   usePlatformApiKeysQuery,
 } from "@/features/admin/hooks/use-platform-queries";
 import { PlatformApiKeyTable } from "@/features/admin/components/platform-api-key-table";
+import type { ApiClientError } from "@/features/auth/lib/api-client";
+
+function isPlatformAdminRequiredError(error: unknown): boolean {
+  return (error as ApiClientError | null)?.code === "platform_admin_required";
+}
 
 export default function AdminApiKeysPage() {
   const [orgFilter, setOrgFilter] = useState<string>("all");
-  const { data: organizations } = usePlatformOrganizationsQuery();
-  const { data: keys, isLoading } = usePlatformApiKeysQuery(
-    orgFilter === "all" ? undefined : orgFilter,
-  );
+  const orgsQuery = usePlatformOrganizationsQuery();
+  const keysQuery = usePlatformApiKeysQuery(orgFilter === "all" ? undefined : orgFilter);
 
+  // This page calls the real cross-org /api/v1/platform/* routes, which
+  // require a real platform-admin principal (see requirePlatformAdmin()
+  // server-side) — a genuine 403 here is expected for every other
+  // account, not a bug. Surfacing it explicitly instead of silently
+  // rendering an empty table, which used to look indistinguishable from
+  // "there really are zero keys."
+  const needsPlatformAdmin =
+    isPlatformAdminRequiredError(orgsQuery.error) || isPlatformAdminRequiredError(keysQuery.error);
+
+  if (needsPlatformAdmin) {
+    return (
+      <Alert variant="warning" title="Platform administrator access required">
+        <p>
+          This page lists real API keys across every organization on the platform — it requires a
+          real platform-admin account, which is separate from your organization role (owner/admin/
+          member/viewer) and isn&apos;t self-serve yet. If you want to create or manage an API key
+          for your own account, use{" "}
+          <a href="/settings/api" className="text-accent font-medium underline underline-offset-4">
+            Settings → API
+          </a>{" "}
+          instead.
+        </p>
+      </Alert>
+    );
+  }
+
+  const organizations = orgsQuery.data;
+  const keys = keysQuery.data;
   const orgOptions = [
     { value: "all", label: "All organizations" },
     ...(organizations ?? []).map((org) => ({ value: org.id, label: org.name })),
@@ -57,7 +89,7 @@ export default function AdminApiKeysPage() {
         </div>
       </div>
 
-      <PlatformApiKeyTable keys={keys ?? []} loading={isLoading} />
+      <PlatformApiKeyTable keys={keys ?? []} loading={keysQuery.isLoading} />
     </div>
   );
 }
