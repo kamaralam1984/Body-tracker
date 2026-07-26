@@ -47,11 +47,12 @@ function readJsHeapMb(): number | null {
 }
 
 export function DeveloperModePanel({ className }: { className?: string }) {
-  const { frameRef, perf, live } = useTrackingContext();
+  const { frameRef, perf, live, renderPerfRef } = useTrackingContext();
   const [enabled, setEnabled] = useState(false);
   const [fpsHistory, setFpsHistory] = useState<number[]>([]);
   const [polledFrame, setPolledFrame] = useState<TrackingFrame | null>(null);
   const [jsHeapMb, setJsHeapMb] = useState<number | null>(null);
+  const [renderTimeMs, setRenderTimeMs] = useState(0);
 
   useEffect(() => {
     if (!enabled) return;
@@ -68,9 +69,10 @@ export function DeveloperModePanel({ className }: { className?: string }) {
     const interval = setInterval(() => {
       setPolledFrame(frameRef.current);
       setJsHeapMb(readJsHeapMb());
+      setRenderTimeMs(renderPerfRef.current.renderTimeMs);
     }, FRAME_POLL_MS);
     return () => clearInterval(interval);
-  }, [enabled, frameRef]);
+  }, [enabled, frameRef, renderPerfRef]);
 
   return (
     <Card className={cn(className)}>
@@ -107,6 +109,25 @@ export function DeveloperModePanel({ className }: { className?: string }) {
               </span>
             </div>
             {fpsHistory.length > 1 && <Sparkline data={fpsHistory} className="h-8 w-24" />}
+          </div>
+
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex flex-col gap-1">
+              <span className="text-muted-foreground text-xs tracking-wide uppercase">
+                Rendering time
+              </span>
+              <span className="text-foreground text-sm font-medium">
+                {round(renderTimeMs)} ms/frame
+              </span>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-muted-foreground text-xs tracking-wide uppercase">
+                Dropped frames
+              </span>
+              <span className="text-foreground text-sm font-medium">
+                {perf.droppedFrames !== null ? perf.droppedFrames : "Not available in this browser"}
+              </span>
+            </div>
           </div>
 
           <div className="flex items-center justify-between gap-4">

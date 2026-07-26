@@ -58,6 +58,10 @@ export const DEFAULT_IMAGE_ADJUSTMENTS: ImageAdjustments = {
   saturation: 50,
 };
 
+export type CameraAspectRatio = "16:9" | "4:3" | "1:1" | "9:16";
+
+export type GridOverlayMode = "off" | "thirds" | "crosshair" | "golden" | "safe-margins";
+
 export interface CameraSettingsState {
   deviceId?: string;
   resolution: ResolutionPreset;
@@ -66,6 +70,9 @@ export interface CameraSettingsState {
   autoStart: boolean;
   facingMode?: FacingMode;
   adjustments: ImageAdjustments;
+  aspectRatio: CameraAspectRatio;
+  gridOverlay: GridOverlayMode;
+  lowLightBoost: boolean;
 }
 
 export interface CameraStats {
@@ -86,6 +93,10 @@ export interface ExtendedMediaTrackCapabilities extends MediaTrackCapabilities {
   torch?: boolean;
   focusMode?: string[];
   exposureMode?: string[];
+  whiteBalanceMode?: string[];
+  colorTemperature?: { min: number; max: number; step: number };
+  iso?: { min: number; max: number; step: number };
+  exposureTime?: { min: number; max: number; step: number };
 }
 
 export interface ExtendedMediaTrackConstraintSet extends MediaTrackConstraintSet {
@@ -93,6 +104,10 @@ export interface ExtendedMediaTrackConstraintSet extends MediaTrackConstraintSet
   torch?: boolean;
   focusMode?: string;
   exposureMode?: string;
+  whiteBalanceMode?: string;
+  colorTemperature?: number;
+  iso?: number;
+  exposureTime?: number;
 }
 
 export const DEFAULT_CAMERA_SETTINGS: CameraSettingsState = {
@@ -103,4 +118,7 @@ export const DEFAULT_CAMERA_SETTINGS: CameraSettingsState = {
   autoStart: false,
   facingMode: undefined,
   adjustments: DEFAULT_IMAGE_ADJUSTMENTS,
+  aspectRatio: "16:9",
+  gridOverlay: "off",
+  lowLightBoost: false,
 };

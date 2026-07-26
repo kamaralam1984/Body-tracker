@@ -20,6 +20,7 @@ import {
   type RefObject,
 } from "react";
 import type {
+  CameraAspectRatio,
   CameraDeviceInfo,
   CameraError,
   CameraSettingsState,
@@ -28,6 +29,7 @@ import type {
   ExtendedMediaTrackCapabilities,
   ExtendedMediaTrackConstraintSet,
   FacingMode,
+  GridOverlayMode,
   ImageAdjustments,
   ResolutionPreset,
 } from "../types";
@@ -87,6 +89,9 @@ export interface UseCameraResult {
   takeScreenshot: () => string | null;
   resetSettings: () => void;
   setAdjustments: (adjustments: Partial<ImageAdjustments>) => void;
+  setAspectRatio: (aspectRatio: CameraAspectRatio) => void;
+  setGridOverlay: (gridOverlay: GridOverlayMode) => void;
+  setLowLightBoost: (enabled: boolean) => void;
   /** Real per-device support (zoom range, torch, exposure/focus modes) — `null` until a stream starts, feature-detected from `track.getCapabilities()`. Most desktop webcams report none of these; that's the honest answer, not a bug. */
   capabilities: ExtendedMediaTrackCapabilities | null;
   /** Calls `track.applyConstraints()` on the live video track for a capability found in `capabilities`. Silently no-ops if the device doesn't actually support it. */
@@ -301,6 +306,21 @@ export function useCamera(options: UseCameraOptions = {}): UseCameraResult {
     setSettings((prev) => ({ ...prev, adjustments: { ...prev.adjustments, ...adjustments } }));
   }, []);
 
+  const setAspectRatio = useCallback((aspectRatio: CameraAspectRatio) => {
+    setSettings((prev) => ({ ...prev, aspectRatio }));
+  }, []);
+
+  const setGridOverlay = useCallback((gridOverlay: GridOverlayMode) => {
+    setSettings((prev) => ({ ...prev, gridOverlay }));
+  }, []);
+
+  // A real exposure/contrast boost (reuses the same CSS-filter pipeline as
+  // the manual sliders) — not a learned low-light model, just a brighter
+  // preset applied on top of whatever the user already set manually.
+  const setLowLightBoost = useCallback((enabled: boolean) => {
+    setSettings((prev) => ({ ...prev, lowLightBoost: enabled }));
+  }, []);
+
   // Real per-track hardware constraint (zoom/torch/exposure/focus) — a no-op
   // on the majority of devices that don't support a given field; callers
   // gate on `capabilities` before ever showing the control, so silently
@@ -443,6 +463,9 @@ export function useCamera(options: UseCameraOptions = {}): UseCameraResult {
     takeScreenshot,
     resetSettings,
     setAdjustments,
+    setAspectRatio,
+    setGridOverlay,
+    setLowLightBoost,
     capabilities,
     applyTrackConstraints,
     flipFacing,

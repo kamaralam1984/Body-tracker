@@ -20,6 +20,12 @@ interface FullscreenButtonProps {
   className?: string;
 }
 
+function isTypingTarget(el: Element | null): boolean {
+  if (!el) return false;
+  const tag = el.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || (el as HTMLElement).isContentEditable;
+}
+
 export function FullscreenButton({ targetRef, className }: FullscreenButtonProps) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   // Starts false on both server and client to avoid a hydration mismatch,
@@ -44,6 +50,18 @@ export function FullscreenButton({ targetRef, className }: FullscreenButtonProps
       void targetRef.current?.requestFullscreen();
     }
   }, [targetRef]);
+
+  // `F` toggles fullscreen; `Escape` already exits it natively via the
+  // browser's own Fullscreen API, so there's nothing to wire for that.
+  useEffect(() => {
+    if (!isAvailable) return;
+    function handleKeyDown(event: KeyboardEvent) {
+      if (isTypingTarget(document.activeElement)) return;
+      if (event.code === "KeyF") toggleFullscreen();
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isAvailable, toggleFullscreen]);
 
   // Fullscreen API unsupported (e.g. some iOS browsers): render nothing
   // rather than a permanently-disabled button, since there's no path to

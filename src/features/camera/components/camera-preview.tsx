@@ -14,6 +14,11 @@ function adjustmentFilter(value: number): number {
   return 50 + value;
 }
 
+// A real, simple exposure/contrast boost (not a learned model) — stacks on
+// top of whatever the user already set manually via the sliders.
+const LOW_LIGHT_BRIGHTNESS_BOOST = 35;
+const LOW_LIGHT_CONTRAST_BOOST = 15;
+
 /** The raw video surface — mirrored per settings, fades in once a frame is playing, with real brightness/contrast/saturation applied via CSS `filter`. */
 export function CameraPreview({ className }: CameraPreviewProps) {
   const { videoRef, settings, status } = useCameraContext();
@@ -21,7 +26,8 @@ export function CameraPreview({ className }: CameraPreviewProps) {
     status === "running" || status === "paused" || status === "ready" || status === "reconnecting";
 
   const { brightness, contrast, saturation } = settings.adjustments;
-  const filter = `brightness(${adjustmentFilter(brightness)}%) contrast(${adjustmentFilter(contrast)}%) saturate(${adjustmentFilter(saturation)}%)`;
+  const boost = settings.lowLightBoost;
+  const filter = `brightness(${adjustmentFilter(brightness) + (boost ? LOW_LIGHT_BRIGHTNESS_BOOST : 0)}%) contrast(${adjustmentFilter(contrast) + (boost ? LOW_LIGHT_CONTRAST_BOOST : 0)}%) saturate(${adjustmentFilter(saturation)}%)`;
 
   return (
     <video

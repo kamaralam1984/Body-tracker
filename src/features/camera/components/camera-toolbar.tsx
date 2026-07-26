@@ -20,6 +20,15 @@ import { cn } from "@/lib/utils";
 import { useCameraContext } from "../context/camera-provider";
 import { MirrorToggle } from "./mirror-toggle";
 import { CameraFlipButton } from "./camera-flip-button";
+import type { GridOverlayMode } from "../types";
+
+const GRID_CYCLE_ORDER: GridOverlayMode[] = [
+  "off",
+  "thirds",
+  "crosshair",
+  "golden",
+  "safe-margins",
+];
 
 interface CameraToolbarProps {
   onScreenshot?: (dataUrl: string) => void;
@@ -64,8 +73,21 @@ function ToolbarButton({
 }
 
 export function CameraToolbar({ onScreenshot, className }: CameraToolbarProps) {
-  const { status, isSupported, start, stop, pause, resume, refresh, toggleMirror, takeScreenshot } =
-    useCameraContext();
+  const {
+    status,
+    isSupported,
+    start,
+    stop,
+    pause,
+    resume,
+    refresh,
+    toggleMirror,
+    takeScreenshot,
+    devices,
+    flipFacing,
+    settings,
+    setGridOverlay,
+  } = useCameraContext();
 
   const isRunningLike = status === "running" || status === "paused" || status === "ready";
   const isStarting = status === "initializing" || status === "waiting" || status === "reconnecting";
@@ -100,6 +122,8 @@ export function CameraToolbar({ onScreenshot, className }: CameraToolbarProps) {
   //     stray keypress can't hang up the camera.
   //   M — toggle mirror mode.
   //   S — take a screenshot (only while there's a live frame to capture).
+  //   C — flip front/back camera (only meaningful with 2+ video inputs).
+  //   G — cycle the grid overlay mode.
   // Ignored while focus is inside a text input/textarea/contenteditable so
   // typing "space" or "s" elsewhere on the page doesn't trigger controls.
   useEffect(() => {
@@ -124,6 +148,15 @@ export function CameraToolbar({ onScreenshot, className }: CameraToolbarProps) {
         case "KeyS":
           if (canScreenshot) handleScreenshot();
           break;
+        case "KeyC":
+          if (devices.length > 1 && isRunningLike) void flipFacing();
+          break;
+        case "KeyG": {
+          const currentIndex = GRID_CYCLE_ORDER.indexOf(settings.gridOverlay);
+          const next = GRID_CYCLE_ORDER[(currentIndex + 1) % GRID_CYCLE_ORDER.length]!;
+          setGridOverlay(next);
+          break;
+        }
         default:
           break;
       }
@@ -140,6 +173,10 @@ export function CameraToolbar({ onScreenshot, className }: CameraToolbarProps) {
     handlePauseResume,
     handleScreenshot,
     toggleMirror,
+    devices.length,
+    flipFacing,
+    settings.gridOverlay,
+    setGridOverlay,
   ]);
 
   return (

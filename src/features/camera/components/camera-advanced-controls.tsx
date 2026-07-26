@@ -18,40 +18,61 @@ import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { useCameraContext } from "../context/camera-provider";
 
-function ZoomControl() {
-  const { capabilities, applyTrackConstraints } = useCameraContext();
-  const zoom = capabilities?.zoom;
-  const [value, setValue] = useState<number | null>(null);
-  if (!zoom) return null;
+type NumericConstraintField = "zoom" | "colorTemperature" | "iso" | "exposureTime";
 
-  const current = value ?? zoom.min;
+/** Generic feature-detected numeric slider — reused for zoom/white-balance-temperature/ISO/shutter-speed, which all follow the exact same `getCapabilities()` `{min,max,step}` shape. */
+function NumericConstraintSlider({
+  label,
+  field,
+  unit,
+  capability,
+}: {
+  label: string;
+  field: NumericConstraintField;
+  unit: string;
+  capability: { min: number; max: number; step: number };
+}) {
+  const { applyTrackConstraints } = useCameraContext();
+  const [value, setValue] = useState<number | null>(null);
+  const current = value ?? capability.min;
 
   function handleChange(event: ChangeEvent<HTMLInputElement>) {
     const next = Number(event.target.value);
     setValue(next);
-    void applyTrackConstraints({ zoom: next });
+    void applyTrackConstraints({ [field]: next });
   }
 
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
-        <Label className="text-sm font-normal">Zoom</Label>
-        <span className="text-muted-foreground text-xs tabular-nums">{current.toFixed(1)}×</span>
+        <Label className="text-sm font-normal">{label}</Label>
+        <span className="text-muted-foreground text-xs tabular-nums">
+          {current.toFixed(field === "zoom" ? 1 : 0)}
+          {unit}
+        </span>
       </div>
       <input
         type="range"
-        min={zoom.min}
-        max={zoom.max}
-        step={zoom.step || 0.1}
+        min={capability.min}
+        max={capability.max}
+        step={capability.step || 1}
         value={current}
         onChange={handleChange}
-        aria-label="Zoom"
+        aria-label={label}
         className={cn(
           "bg-muted accent-accent h-1.5 w-full appearance-none rounded-full",
           "[&::-webkit-slider-thumb]:bg-accent [&::-webkit-slider-thumb]:size-3.5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-sm",
         )}
       />
     </div>
+  );
+}
+
+function ZoomControl() {
+  const { capabilities } = useCameraContext();
+  if (!capabilities?.zoom) return null;
+  return (
+    <NumericConstraintSlider label="Zoom" field="zoom" unit="×" capability={capabilities.zoom} />
   );
 }
 
@@ -107,18 +128,79 @@ function AutoModeControl({
   );
 }
 
+function WhiteBalanceControl() {
+  const { capabilities, applyTrackConstraints } = useCameraContext();
+  const [auto, setAuto] = useState(true);
+  const modes = capabilities?.whiteBalanceMode;
+  const canToggle = !!modes?.includes("continuous") && !!modes?.includes("manual");
+  const temperature = capabilities?.colorTemperature;
+
+  if (!canToggle && !temperature) return null;
+
+  return (
+    <div className="flex flex-col gap-3">
+      {canToggle && (
+        <div className="flex items-center justify-between gap-4">
+          <Label htmlFor="auto-white-balance">Auto white balance</Label>
+          <Switch
+            id="auto-white-balance"
+            checked={auto}
+            onCheckedChange={(checked) => {
+              setAuto(checked);
+              void applyTrackConstraints({ whiteBalanceMode: checked ? "continuous" : "manual" });
+            }}
+          />
+        </div>
+      )}
+      {temperature && !auto && (
+        <NumericConstraintSlider
+          label="Color temperature"
+          field="colorTemperature"
+          unit="K"
+          capability={temperature}
+        />
+      )}
+    </div>
+  );
+}
+
+function IsoControl() {
+  const { capabilities } = useCameraContext();
+  if (!capabilities?.iso) return null;
+  return <NumericConstraintSlider label="ISO" field="iso" unit="" capability={capabilities.iso} />;
+}
+
+function ShutterSpeedControl() {
+  const { capabilities } = useCameraContext();
+  if (!capabilities?.exposureTime) return null;
+  return (
+    <NumericConstraintSlider
+      label="Shutter speed"
+      field="exposureTime"
+      unit=""
+      capability={capabilities.exposureTime}
+    />
+  );
+}
+
 export function CameraAdvancedControls() {
   const { capabilities } = useCameraContext();
   const hasAny =
     !!capabilities?.zoom ||
     !!capabilities?.torch ||
     !!capabilities?.exposureMode?.length ||
-    !!capabilities?.focusMode?.length;
+    !!capabilities?.focusMode?.length ||
+    !!capabilities?.whiteBalanceMode?.length ||
+    !!capabilities?.colorTemperature ||
+    !!capabilities?.iso ||
+    !!capabilities?.exposureTime;
 
   if (!capabilities || !hasAny) {
     return (
       <p className="text-muted-foreground text-xs">
-        This camera doesn&apos;t report support for zoom, torch, or exposure/focus control.
+        This camera doesn&apos;t report support for zoom, torch, exposure/focus, white balance, ISO,
+        or shutter speed control — most webcams don&apos;t expose these to the browser, so this is
+        the honest result, not a bug.
       </p>
     );
   }
@@ -129,6 +211,9 @@ export function CameraAdvancedControls() {
       <TorchControl />
       <AutoModeControl label="Auto exposure" field="exposureMode" htmlId="auto-exposure" />
       <AutoModeControl label="Auto focus" field="focusMode" htmlId="auto-focus" />
+      <WhiteBalanceControl />
+      <IsoControl />
+      <ShutterSpeedControl />
     </div>
   );
 }

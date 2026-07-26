@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Circle, Download, Mic, Square } from "lucide-react";
+import { Circle, Download, Mic, Pause, Play, Square } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -23,7 +23,20 @@ import { downloadJson } from "@/lib/download-file";
 import { exportToCsv } from "@/features/reporting/lib/export-engine";
 import { useCameraContext } from "@/features/camera";
 import { useTrackingContext } from "../context/tracking-provider";
-import { useSessionRecording } from "../hooks/use-session-recording";
+import { MicLevelMeter } from "./mic-level-meter";
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatDuration(totalSeconds: number): string {
+  const seconds = Math.max(0, Math.round(totalSeconds));
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
 
 const LANDMARK_SAMPLE_INTERVAL_MS = 200; // ~5fps
 const MAX_LANDMARK_SAMPLES = 3000; // ~10 minutes at 5fps — a real memory cap, not arbitrary
@@ -39,8 +52,7 @@ interface LandmarkSample {
 
 export function RecordingExportPanel({ className }: { className?: string }) {
   const { stream, status } = useCameraContext();
-  const { live, frameRef } = useTrackingContext();
-  const recording = useSessionRecording();
+  const { live, frameRef, recording } = useTrackingContext();
   const [landmarkLoggingEnabled, setLandmarkLoggingEnabled] = useState(false);
   const samplesRef = useRef<LandmarkSample[]>([]);
   const [sampleCount, setSampleCount] = useState(0);
@@ -85,6 +97,25 @@ export function RecordingExportPanel({ className }: { className?: string }) {
       void recording.startRecording(stream);
     }
   }
+
+  // `R` starts/stops recording — same self-contained shortcut pattern as
+  // camera-toolbar.tsx's Space/M/S/C/G, scoped to whichever component owns
+  // the relevant state so shortcuts don't require lifting hooks across
+  // features just to share a keydown listener.
+  useEffect(() => {
+    function isTypingTarget(el: Element | null): boolean {
+      if (!el) return false;
+      const tag = el.tagName;
+      return tag === "INPUT" || tag === "TEXTAREA" || (el as HTMLElement).isContentEditable;
+    }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (isTypingTarget(document.activeElement)) return;
+      if (event.code === "KeyR" && canRecord) handleToggleRecording();
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canRecord, recording.isRecording, stream]);
 
   function handleExportSessionJson() {
     downloadJson(`camera-session-${Date.now()}.json`, {
@@ -140,23 +171,101 @@ export function RecordingExportPanel({ className }: { className?: string }) {
               placeholder="Default microphone"
             />
           )}
+          {recording.micEnabled && (
+            <div className="flex flex-col gap-2">
+              {recording.micTrack && <MicLevelMeter track={recording.micTrack} />}
+              <div className="grid grid-cols-3 gap-2">
+                <label className="text-muted-foreground flex items-center gap-1.5 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={recording.audioAdjustments.noiseSuppression}
+                    onChange={(e) =>
+                      recording.setAudioAdjustments({ noiseSuppression: e.target.checked })
+                    }
+                  />
+                  Noise suppression
+                </label>
+                <label className="text-muted-foreground flex items-center gap-1.5 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={recording.audioAdjustments.echoCancellation}
+                    onChange={(e) =>
+                      recording.setAudioAdjustments({ echoCancellation: e.target.checked })
+                    }
+                  />
+                  Echo cancellation
+                </label>
+                <label className="text-muted-foreground flex items-center gap-1.5 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={recording.audioAdjustments.autoGainControl}
+                    onChange={(e) =>
+                      recording.setAudioAdjustments({ autoGainControl: e.target.checked })
+                    }
+                  />
+                  Gain control
+                </label>
+              </div>
+            </div>
+          )}
 
-          <Button
-            type="button"
-            variant={recording.isRecording ? "danger" : "outline"}
-            disabled={!canRecord}
-            onClick={handleToggleRecording}
-          >
-            {recording.isRecording ? (
-              <>
-                <Square className="fill-current" /> Stop recording
-              </>
-            ) : (
-              <>
-                <Circle className="fill-current" /> Start recording
-              </>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant={recording.isRecording ? "danger" : "outline"}
+              disabled={!canRecord}
+              onClick={handleToggleRecording}
+              className="flex-1"
+            >
+              {recording.isRecording ? (
+                <>
+                  <Square className="fill-current" /> Stop
+                </>
+              ) : (
+                <>
+                  <Circle className="fill-current" /> Start recording
+                </>
+              )}
+            </Button>
+            {recording.isRecording && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={recording.isPaused ? recording.resumeRecording : recording.pauseRecording}
+              >
+                {recording.isPaused ? <Play /> : <Pause />}
+              </Button>
             )}
-          </Button>
+          </div>
+
+          {recording.isRecording && (
+            <div className="bg-muted flex flex-col gap-1.5 rounded-md px-3 py-2 text-xs">
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-danger flex items-center gap-1.5 font-medium">
+                  <span className="bg-danger size-2 animate-pulse rounded-full" />
+                  {recording.isPaused ? "Paused" : "Recording"}{" "}
+                  {formatDuration(recording.stats.elapsedSeconds)}
+                </span>
+                <span className="text-muted-foreground">
+                  {formatBytes(recording.stats.bytesRecorded)}
+                </span>
+                {recording.stats.estimatedRemainingBytes !== null && (
+                  <span className="text-muted-foreground">
+                    {formatBytes(recording.stats.estimatedRemainingBytes)} free
+                  </span>
+                )}
+              </div>
+              <div className="text-muted-foreground flex items-center justify-between gap-4">
+                <span className="truncate">{recording.stats.mimeType ?? "—"}</span>
+                <span>
+                  {recording.stats.elapsedSeconds > 0
+                    ? `${Math.round((recording.stats.bytesRecorded * 8) / recording.stats.elapsedSeconds / 1000)} kbps`
+                    : "— kbps"}
+                </span>
+              </div>
+            </div>
+          )}
+
           {recording.error && <p className="text-danger text-xs">{recording.error}</p>}
           <p className="text-muted-foreground text-xs">
             Saved locally as a .webm file — never uploaded anywhere.

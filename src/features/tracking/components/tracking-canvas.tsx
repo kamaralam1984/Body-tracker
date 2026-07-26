@@ -42,7 +42,7 @@ const COLOR_REFRESH_INTERVAL_FRAMES = 60;
 
 export function TrackingCanvas({ containerRef, className }: TrackingCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const { frameRef, config, renderMode } = useTrackingContext();
+  const { frameRef, config, renderMode, renderPerfRef } = useTrackingContext();
 
   useEffect(() => {
     const container = containerRef.current;
@@ -92,6 +92,7 @@ export function TrackingCanvas({ containerRef, className }: TrackingCanvasProps)
     let detectionIntervalMs = MAX_DETECTION_INTERVAL_MS;
 
     function draw() {
+      const drawStart = performance.now();
       frameCount += 1;
       if (frameCount % COLOR_REFRESH_INTERVAL_FRAMES === 0) {
         colors = resolveTrackingColors();
@@ -138,6 +139,13 @@ export function TrackingCanvas({ containerRef, className }: TrackingCanvasProps)
         }
       }
 
+      // Written directly to a ref (not React state) — this runs every
+      // animation frame, and DeveloperModePanel polls it at a bounded rate.
+      const drawTimeMs = performance.now() - drawStart;
+      const prevAvg = renderPerfRef.current.renderTimeMs;
+      renderPerfRef.current.renderTimeMs =
+        prevAvg === 0 ? drawTimeMs : prevAvg * 0.9 + drawTimeMs * 0.1;
+
       rafHandle = requestAnimationFrame(draw);
     }
     rafHandle = requestAnimationFrame(draw);
@@ -146,7 +154,7 @@ export function TrackingCanvas({ containerRef, className }: TrackingCanvasProps)
       observer.disconnect();
       cancelAnimationFrame(rafHandle);
     };
-    // containerRef/frameRef are stable ref objects for the lifetime of this component.
+    // containerRef/frameRef/renderPerfRef are stable ref objects for the lifetime of this component.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [renderMode]);
 

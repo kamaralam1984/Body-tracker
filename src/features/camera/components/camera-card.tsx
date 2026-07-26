@@ -24,6 +24,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useCameraContext } from "../context/camera-provider";
 import { CameraPreview } from "./camera-preview";
+import type { CameraAspectRatio } from "../types";
 
 const STATUS_COPY: Partial<
   Record<string, { icon: LucideIcon; title: string; description: string }>
@@ -84,17 +85,18 @@ const STATUS_COPY: Partial<
 interface CameraCardProps {
   action?: React.ReactNode;
   className?: string;
-  aspectRatio?: "video" | "square" | "portrait";
+  aspectRatio?: CameraAspectRatio;
 }
 
-const aspectClassMap = {
-  video: "aspect-video",
-  square: "aspect-square",
-  portrait: "aspect-[3/4]",
+const aspectClassMap: Record<CameraAspectRatio, string> = {
+  "16:9": "aspect-video",
+  "4:3": "aspect-[4/3]",
+  "1:1": "aspect-square",
+  "9:16": "aspect-[9/16]",
 };
 
 export const CameraCard = forwardRef<HTMLDivElement, CameraCardProps>(function CameraCard(
-  { action, className, aspectRatio = "video" },
+  { action, className, aspectRatio = "16:9" },
   ref,
 ) {
   const { status } = useCameraContext();

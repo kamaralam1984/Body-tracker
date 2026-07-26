@@ -9,10 +9,19 @@
  * same trust boundary as the existing screenshot feature.
  *
  * Optional microphone track — off by default, since nothing else in this
- * app uses audio; only meaningful here, for narrating a recorded clip.
+ * app uses audio; only meaningful here, for narrating a recorded clip. Real
+ * `noiseSuppression`/`echoCancellation`/`autoGainControl` constraints (all
+ * standard `MediaTrackConstraints` fields) apply once the mic is requested.
+ *
+ * Pause/resume/timer/live size are all genuinely real — `MediaRecorder`
+ * already supports `pause()`/`resume()`, chunk sizes accumulate as real
+ * bytes, and `navigator.storage.estimate()` is a real quota API. MP4 is not
+ * guaranteed cross-browser (Chrome/Firefox reliably produce WebM;
+ * Safari's `MediaRecorder` often defaults to MP4/H.264 on its own) — this
+ * stays WebM-first rather than pretending otherwise.
  */
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { downloadFile } from "@/lib/download-file";
 
 export interface AudioDeviceInfo {
@@ -20,18 +29,48 @@ export interface AudioDeviceInfo {
   label: string;
 }
 
+/** Real, standard `MediaTrackConstraints` fields — only actually take effect once a mic track is requested (this app doesn't request audio by default). */
+export interface AudioAdjustments {
+  noiseSuppression: boolean;
+  echoCancellation: boolean;
+  autoGainControl: boolean;
+}
+
+const DEFAULT_AUDIO_ADJUSTMENTS: AudioAdjustments = {
+  noiseSuppression: true,
+  echoCancellation: true,
+  autoGainControl: true,
+};
+
+export interface RecordingStats {
+  elapsedSeconds: number;
+  bytesRecorded: number;
+  mimeType: string | null;
+  estimatedRemainingBytes: number | null;
+}
+
 export interface UseSessionRecordingResult {
   isRecording: boolean;
+  isPaused: boolean;
   micEnabled: boolean;
   setMicEnabled: (enabled: boolean) => void;
   audioDevices: AudioDeviceInfo[];
   selectedMicId: string | undefined;
   setSelectedMicId: (deviceId: string | undefined) => void;
+  audioAdjustments: AudioAdjustments;
+  setAudioAdjustments: (adjustments: Partial<AudioAdjustments>) => void;
   refreshAudioDevices: () => Promise<void>;
   startRecording: (videoStream: MediaStream) => Promise<void>;
+  pauseRecording: () => void;
+  resumeRecording: () => void;
   stopRecording: () => void;
+  stats: RecordingStats;
+  /** The live mic `MediaStreamTrack`, if a mic is currently attached — for a real level meter (Web Audio `AnalyserNode`). */
+  micTrack: MediaStreamTrack | null;
   error: string | null;
 }
+
+const STATS_INTERVAL_MS = 500;
 
 function pickSupportedMimeType(): string {
   const candidates = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"];
@@ -43,14 +82,32 @@ function pickSupportedMimeType(): string {
 
 export function useSessionRecording(): UseSessionRecordingResult {
   const [isRecording, setIsRecording] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [micEnabled, setMicEnabled] = useState(false);
   const [audioDevices, setAudioDevices] = useState<AudioDeviceInfo[]>([]);
   const [selectedMicId, setSelectedMicId] = useState<string | undefined>(undefined);
+  const [audioAdjustments, setAudioAdjustmentsState] =
+    useState<AudioAdjustments>(DEFAULT_AUDIO_ADJUSTMENTS);
   const [error, setError] = useState<string | null>(null);
+  const [micTrack, setMicTrack] = useState<MediaStreamTrack | null>(null);
+  const [stats, setStats] = useState<RecordingStats>({
+    elapsedSeconds: 0,
+    bytesRecorded: 0,
+    mimeType: null,
+    estimatedRemainingBytes: null,
+  });
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const micStreamRef = useRef<MediaStream | null>(null);
+  const startedAtRef = useRef<number | null>(null);
+  const pausedAccumRef = useRef(0);
+  const pausedAtRef = useRef<number | null>(null);
+  const statsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const setAudioAdjustments = useCallback((adjustments: Partial<AudioAdjustments>) => {
+    setAudioAdjustmentsState((prev) => ({ ...prev, ...adjustments }));
+  }, []);
 
   const refreshAudioDevices = useCallback(async () => {
     if (typeof navigator === "undefined" || !navigator.mediaDevices) return;
@@ -66,6 +123,27 @@ export function useSessionRecording(): UseSessionRecordingResult {
     }
   }, []);
 
+  const pushStats = useCallback(() => {
+    const startedAt = startedAtRef.current;
+    if (startedAt === null) return;
+    const pausedNow = pausedAtRef.current !== null ? Date.now() - pausedAtRef.current : 0;
+    const elapsedSeconds = (Date.now() - startedAt - pausedAccumRef.current - pausedNow) / 1000;
+    const bytesRecorded = chunksRef.current.reduce((sum, chunk) => sum + chunk.size, 0);
+
+    setStats((prev) => ({ ...prev, elapsedSeconds: Math.max(elapsedSeconds, 0), bytesRecorded }));
+
+    if (typeof navigator !== "undefined" && navigator.storage?.estimate) {
+      void navigator.storage.estimate().then((estimate) => {
+        if (estimate.quota !== undefined && estimate.usage !== undefined) {
+          setStats((prev) => ({
+            ...prev,
+            estimatedRemainingBytes: Math.max(estimate.quota! - estimate.usage!, 0),
+          }));
+        }
+      });
+    }
+  }, []);
+
   const startRecording = useCallback(
     async (videoStream: MediaStream) => {
       setError(null);
@@ -74,9 +152,16 @@ export function useSessionRecording(): UseSessionRecordingResult {
       if (micEnabled) {
         try {
           const audioStream = await navigator.mediaDevices.getUserMedia({
-            audio: selectedMicId ? { deviceId: { exact: selectedMicId } } : true,
+            audio: {
+              deviceId: selectedMicId ? { exact: selectedMicId } : undefined,
+              noiseSuppression: audioAdjustments.noiseSuppression,
+              echoCancellation: audioAdjustments.echoCancellation,
+              autoGainControl: audioAdjustments.autoGainControl,
+            },
           });
           micStreamRef.current = audioStream;
+          const audioTrack = audioStream.getAudioTracks()[0] ?? null;
+          setMicTrack(audioTrack);
           combined = new MediaStream([
             ...videoStream.getVideoTracks(),
             ...audioStream.getAudioTracks(),
@@ -87,7 +172,8 @@ export function useSessionRecording(): UseSessionRecordingResult {
       }
 
       try {
-        const recorder = new MediaRecorder(combined, { mimeType: pickSupportedMimeType() });
+        const mimeType = pickSupportedMimeType();
+        const recorder = new MediaRecorder(combined, { mimeType });
         chunksRef.current = [];
         recorder.ondataavailable = (event) => {
           if (event.data.size > 0) chunksRef.current.push(event.data);
@@ -98,35 +184,78 @@ export function useSessionRecording(): UseSessionRecordingResult {
           chunksRef.current = [];
           micStreamRef.current?.getTracks().forEach((track) => track.stop());
           micStreamRef.current = null;
+          setMicTrack(null);
         };
-        recorder.start();
+        recorder.start(1000); // 1s timeslice — chunks arrive incrementally, so live size/estimate stay accurate mid-recording
         recorderRef.current = recorder;
+
+        startedAtRef.current = Date.now();
+        pausedAccumRef.current = 0;
+        pausedAtRef.current = null;
+        setStats({ elapsedSeconds: 0, bytesRecorded: 0, mimeType, estimatedRemainingBytes: null });
         setIsRecording(true);
+        setIsPaused(false);
+        statsIntervalRef.current = setInterval(pushStats, STATS_INTERVAL_MS);
       } catch {
         setError("Recording isn't supported in this browser.");
         micStreamRef.current?.getTracks().forEach((track) => track.stop());
         micStreamRef.current = null;
+        setMicTrack(null);
       }
     },
-    [micEnabled, selectedMicId],
+    [micEnabled, selectedMicId, audioAdjustments, pushStats],
   );
+
+  const pauseRecording = useCallback(() => {
+    if (recorderRef.current?.state !== "recording") return;
+    recorderRef.current.pause();
+    pausedAtRef.current = Date.now();
+    setIsPaused(true);
+  }, []);
+
+  const resumeRecording = useCallback(() => {
+    if (recorderRef.current?.state !== "paused") return;
+    recorderRef.current.resume();
+    if (pausedAtRef.current !== null) {
+      pausedAccumRef.current += Date.now() - pausedAtRef.current;
+      pausedAtRef.current = null;
+    }
+    setIsPaused(false);
+  }, []);
 
   const stopRecording = useCallback(() => {
     recorderRef.current?.stop();
     recorderRef.current = null;
+    if (statsIntervalRef.current) clearInterval(statsIntervalRef.current);
+    statsIntervalRef.current = null;
+    startedAtRef.current = null;
     setIsRecording(false);
+    setIsPaused(false);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (statsIntervalRef.current) clearInterval(statsIntervalRef.current);
+    };
   }, []);
 
   return {
     isRecording,
+    isPaused,
     micEnabled,
     setMicEnabled,
     audioDevices,
     selectedMicId,
     setSelectedMicId,
+    audioAdjustments,
+    setAudioAdjustments,
     refreshAudioDevices,
     startRecording,
+    pauseRecording,
+    resumeRecording,
     stopRecording,
+    stats,
+    micTrack,
     error,
   };
 }

@@ -35,6 +35,8 @@ export interface TrackingPerf {
   processingTimeMs: number;
   /** Detections actually completed per second over the last ~1s — distinct from the camera's own display FPS. */
   detectionFps: number;
+  /** Real cumulative count from `video.getVideoPlaybackQuality().droppedVideoFrames` — `null` where that API doesn't exist (e.g. Firefox/Safari), never a fabricated 0. */
+  droppedFrames: number | null;
 }
 
 export interface UseBodyTrackingResult {
@@ -76,7 +78,11 @@ export function useBodyTracking({
     processingMs: [],
     frameTimestamps: [],
   });
-  const [perf, setPerf] = useState<TrackingPerf>({ processingTimeMs: 0, detectionFps: 0 });
+  const [perf, setPerf] = useState<TrackingPerf>({
+    processingTimeMs: 0,
+    detectionFps: 0,
+    droppedFrames: null,
+  });
 
   if (engineRef.current == null) {
     engineRef.current = new TrackingEngine(config);
@@ -181,7 +187,11 @@ export function useBodyTracking({
       const windowSeconds =
         timestamps.length > 1 ? (timestamps[timestamps.length - 1]! - timestamps[0]!) / 1000 : 0;
       const detectionFps = windowSeconds > 0 ? (timestamps.length - 1) / windowSeconds : 0;
-      setPerf({ processingTimeMs: avgProcessingMs, detectionFps });
+      const droppedFrames =
+        typeof video.getVideoPlaybackQuality === "function"
+          ? video.getVideoPlaybackQuality().droppedVideoFrames
+          : null;
+      setPerf({ processingTimeMs: avgProcessingMs, detectionFps, droppedFrames });
     }, PERF_PUSH_INTERVAL_MS);
 
     return () => {
