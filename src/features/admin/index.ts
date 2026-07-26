@@ -19,7 +19,6 @@ export {
   createOrganization,
   createTeam,
   createCustomRole,
-  createApiKey,
   emptyPermissionMatrix,
 } from "./lib/mock-admin-service";
 export * from "./components";

@@ -822,10 +822,6 @@ export function fetchActivityEvents(): Promise<ActivityEvent[]> {
   return delay(ACTIVITY_EVENTS, 550);
 }
 
-export function fetchApiKeys(): Promise<ApiKey[]> {
-  return delay(API_KEYS, 450);
-}
-
 export function fetchPlans(): Promise<PlanDefinition[]> {
   return delay(PLANS, 300);
 }
@@ -955,32 +951,6 @@ export function createCustomRole(input: {
     isCustom: true,
     memberCount: 0,
     permissions: input.permissions,
-  };
-}
-
-let keyCounter = API_KEYS.length;
-export function createApiKey(input: {
-  name: string;
-  organizationId: string;
-  scopes: string[];
-  isLive: boolean;
-}): ApiKey {
-  keyCounter += 1;
-  return {
-    id: `KEY-${800 + keyCounter}`,
-    name: input.name,
-    organizationId: input.organizationId,
-    prefix: input.isLive ? "sk_live_" : "sk_test_",
-    lastFour: String(1000 + Math.floor(Math.random() * 8999)),
-    scopes: input.scopes,
-    status: "active",
-    createdAt: new Date().toISOString(),
-    lastUsedAt: null,
-    expiresAt: null,
-    requestsThisMonth: 0,
-    quota: 100_000,
-    rateLimitPerMinute: 300,
-    createdBy: "You",
   };
 }
 

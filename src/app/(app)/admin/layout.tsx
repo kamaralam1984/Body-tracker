@@ -2,7 +2,6 @@
 
 import { AdminLayout } from "@/components/layout/admin-layout";
 import {
-  CreateApiKeyDialog,
   CreateOrganizationDialog,
   CreateRoleDialog,
   CreateTeamDialog,
@@ -32,7 +31,6 @@ export default function AdminSectionLayout({ children }: { children: React.React
       <CreateOrganizationDialog />
       <CreateTeamDialog />
       <CreateRoleDialog />
-      <CreateApiKeyDialog />
       <UserDetailDrawer />
       <OrganizationDetailDrawer />
       <TeamDetailDrawer />

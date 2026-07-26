@@ -12,6 +12,7 @@ config({ path: ".env.local" });
 
 import { getPrisma } from "../src/server/db/prisma";
 import { hashPassword } from "../src/server/auth/password";
+import { generateApiKey } from "../src/server/auth/api-keys";
 import type { Role } from "../src/server/db/entities";
 
 function daysAgo(days: number): Date {
@@ -34,22 +35,52 @@ async function main() {
     },
   });
 
+  // A genuine second org — real cross-org data for /api/v1/platform/*
+  // (see task #74/#75) to actually have more than one tenant to list.
+  console.log("Seeding a second organization (for real cross-org platform-admin data)...");
+  await prisma.organization.upsert({
+    where: { id: "org_northwind" },
+    update: {},
+    create: {
+      id: "org_northwind",
+      name: "Northwind Fitness",
+      slug: "northwind-fitness",
+      plan: "growth",
+      createdAt: daysAgo(120),
+    },
+  });
+
   console.log("Seeding team...");
   await prisma.team.upsert({
     where: { id: "team_core" },
     update: {},
     create: { id: "team_core", orgId: "org_apex", name: "Core Team", createdAt: daysAgo(390) },
   });
+  await prisma.team.upsert({
+    where: { id: "team_northwind_core" },
+    update: {},
+    create: {
+      id: "team_northwind_core",
+      orgId: "org_northwind",
+      name: "Core Team",
+      createdAt: daysAgo(110),
+    },
+  });
 
   const seedUsers: Array<{
     id: string;
+    orgId: string;
+    teamId: string;
     email: string;
     name: string;
     role: Role;
     password: string;
+    isPlatformAdmin?: boolean;
   }> = [
     {
       id: "user_owner",
+      orgId: "org_apex",
+      teamId: "team_core",
       email: "owner@apex-performance.dev",
       name: "Riley Sharma",
       role: "owner",
@@ -57,6 +88,8 @@ async function main() {
     },
     {
       id: "user_admin",
+      orgId: "org_apex",
+      teamId: "team_core",
       email: "admin@apex-performance.dev",
       name: "Jordan Blake",
       role: "admin",
@@ -64,10 +97,36 @@ async function main() {
     },
     {
       id: "user_member",
+      orgId: "org_apex",
+      teamId: "team_core",
       email: "member@apex-performance.dev",
       name: "Casey Nguyen",
       role: "member",
       password: "MemberPass123!",
+    },
+    {
+      id: "user_northwind_owner",
+      orgId: "org_northwind",
+      teamId: "team_northwind_core",
+      email: "owner@northwind-fitness.dev",
+      name: "Morgan Ellis",
+      role: "owner",
+      password: "OwnerPass123!",
+    },
+    // Deliberately roster-ed as a plain "viewer" in org_apex — their real
+    // power comes entirely from `isPlatformAdmin`, not their in-org role
+    // (see the schema comment on User.isPlatformAdmin: the two are
+    // orthogonal). Seed-only for now — no self-serve "grant platform
+    // admin" UI exists.
+    {
+      id: "user_platform_admin",
+      orgId: "org_apex",
+      teamId: "team_core",
+      email: "platform-admin@bodytracker.dev",
+      name: "Taylor Osei",
+      role: "viewer",
+      password: "PlatformPass123!",
+      isPlatformAdmin: true,
     },
   ];
 
@@ -75,20 +134,45 @@ async function main() {
   for (const u of seedUsers) {
     await prisma.user.upsert({
       where: { id: u.id },
-      update: {},
+      update: { role: u.role, isPlatformAdmin: u.isPlatformAdmin ?? false },
       create: {
         id: u.id,
-        orgId: "org_apex",
-        teamId: "team_core",
+        orgId: u.orgId,
+        teamId: u.teamId,
         email: u.email,
         passwordHash: hashPassword(u.password),
         name: u.name,
         role: u.role,
         status: "active",
         createdAt: daysAgo(300),
+        isPlatformAdmin: u.isPlatformAdmin ?? false,
       },
     });
   }
+
+  console.log("Seeding a real API key for the second org (deterministic cross-org data)...");
+  const northwindKey = generateApiKey({ environment: "live", keyType: "secret" });
+  await prisma.apiKey.upsert({
+    where: { id: "key_northwind_seed" },
+    update: {},
+    create: {
+      id: "key_northwind_seed",
+      orgId: "org_northwind",
+      userId: "user_northwind_owner",
+      name: "Northwind production key",
+      keyPrefix: northwindKey.prefix,
+      keyHash: northwindKey.hash,
+      scopes: ["sessions:read", "analytics:read"],
+      status: "active",
+      rateLimitPerMinute: 120,
+      requestCount: 0,
+      lastUsedAt: null,
+      expiresAt: null,
+      createdAt: daysAgo(60),
+      environment: "live",
+      keyType: "secret",
+    },
+  });
 
   console.log("Seeding historical tracking sessions + analytics snapshots...");
   const kinds = ["squat", "posture-check", "desk-focus", "mobility-flow"];

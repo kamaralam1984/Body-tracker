@@ -4,7 +4,6 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import {
   fetchActivityEvents,
-  fetchApiKeys,
   fetchFeatureFlags,
   fetchInvoices,
   fetchLoginHistory,
@@ -96,16 +95,6 @@ export function useFeatureFlagsQuery() {
 
 export function useActivityEventsQuery() {
   return useQuery({ queryKey: ["admin", "activity-events"], queryFn: fetchActivityEvents });
-}
-
-export function useApiKeysQuery() {
-  const query = useQuery({ queryKey: ["admin", "api-keys"], queryFn: fetchApiKeys });
-  const created = useAdminStore((s) => s.createdApiKeys);
-  const data = useMemo(
-    () => (query.data ? [...created, ...query.data] : query.data),
-    [query.data, created],
-  );
-  return { ...query, data };
 }
 
 export function usePlansQuery() {

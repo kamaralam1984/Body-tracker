@@ -1,13 +1,5 @@
 import { isAfter, isSameDay, isYesterday, subDays } from "date-fns";
-import type {
-  ActivityEvent,
-  AdminFilters,
-  AdminUser,
-  ApiKey,
-  Invoice,
-  Organization,
-  Team,
-} from "../types";
+import type { ActivityEvent, AdminFilters, AdminUser, Invoice, Organization, Team } from "../types";
 
 /** The Filter Engine — one generic implementation shared by every admin entity table, parameterized by small accessor callbacks instead of being reimplemented per entity. */
 export function filterByAdminFilters<T>(
@@ -73,15 +65,6 @@ export function filterTeams(teams: Team[], filters: AdminFilters): Team[] {
     getOrgId: (t) => t.organizationId,
     getDate: (t) => t.createdAt,
     getSearchHaystack: (t) => `${t.name} ${t.department} ${t.id}`,
-  });
-}
-
-export function filterApiKeys(keys: ApiKey[], filters: AdminFilters): ApiKey[] {
-  return filterByAdminFilters(keys, filters, {
-    getOrgId: (k) => k.organizationId,
-    getStatus: (k) => k.status,
-    getDate: (k) => k.createdAt,
-    getSearchHaystack: (k) => `${k.name} ${k.id} ${k.prefix}${k.lastFour}`,
   });
 }
 

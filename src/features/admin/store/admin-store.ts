@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 import { DEFAULT_ADMIN_FILTERS } from "../types";
-import type { AdminFilters, AdminUser, ApiKey, Organization, Role, Team } from "../types";
+import type { AdminFilters, AdminUser, Organization, Role, Team } from "../types";
 
 interface AdminState {
   /** The org-switcher context — "all" shows the whole platform, an org id scopes every page to that organization. */
@@ -15,8 +15,6 @@ interface AdminState {
   setOrgFilters: (filters: AdminFilters) => void;
   teamFilters: AdminFilters;
   setTeamFilters: (filters: AdminFilters) => void;
-  apiKeyFilters: AdminFilters;
-  setApiKeyFilters: (filters: AdminFilters) => void;
   invoiceFilters: AdminFilters;
   setInvoiceFilters: (filters: AdminFilters) => void;
   activityFilters: AdminFilters;
@@ -42,8 +40,6 @@ interface AdminState {
   setCreateTeamOpen: (open: boolean) => void;
   createRoleOpen: boolean;
   setCreateRoleOpen: (open: boolean) => void;
-  createApiKeyOpen: boolean;
-  setCreateApiKeyOpen: (open: boolean) => void;
 
   selectedUserIds: Set<string>;
   toggleUserSelected: (id: string) => void;
@@ -57,8 +53,6 @@ interface AdminState {
   addCreatedTeam: (team: Team) => void;
   createdRoles: Role[];
   addCreatedRole: (role: Role) => void;
-  createdApiKeys: ApiKey[];
-  addCreatedApiKey: (key: ApiKey) => void;
 }
 
 export const useAdminStore = create<AdminState>((set, get) => ({
@@ -71,8 +65,6 @@ export const useAdminStore = create<AdminState>((set, get) => ({
   setOrgFilters: (filters) => set({ orgFilters: filters }),
   teamFilters: DEFAULT_ADMIN_FILTERS,
   setTeamFilters: (filters) => set({ teamFilters: filters }),
-  apiKeyFilters: DEFAULT_ADMIN_FILTERS,
-  setApiKeyFilters: (filters) => set({ apiKeyFilters: filters }),
   invoiceFilters: DEFAULT_ADMIN_FILTERS,
   setInvoiceFilters: (filters) => set({ invoiceFilters: filters }),
   activityFilters: DEFAULT_ADMIN_FILTERS,
@@ -98,8 +90,6 @@ export const useAdminStore = create<AdminState>((set, get) => ({
   setCreateTeamOpen: (open) => set({ createTeamOpen: open }),
   createRoleOpen: false,
   setCreateRoleOpen: (open) => set({ createRoleOpen: open }),
-  createApiKeyOpen: false,
-  setCreateApiKeyOpen: (open) => set({ createApiKeyOpen: open }),
 
   selectedUserIds: new Set(),
   toggleUserSelected: (id) =>
@@ -120,6 +110,4 @@ export const useAdminStore = create<AdminState>((set, get) => ({
   addCreatedTeam: (team) => set({ createdTeams: [team, ...get().createdTeams] }),
   createdRoles: [],
   addCreatedRole: (role) => set({ createdRoles: [role, ...get().createdRoles] }),
-  createdApiKeys: [],
-  addCreatedApiKey: (key) => set({ createdApiKeys: [key, ...get().createdApiKeys] }),
 }));

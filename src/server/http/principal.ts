@@ -29,6 +29,12 @@ export interface Principal {
   // explicit grant, never a role lookup.
   serviceAccountId?: string;
   rateLimit: RateLimitResult;
+  // Only ever true for a Bearer-token principal whose User row has
+  // `isPlatformAdmin: true` — never set for API-key or service-account
+  // principals (see the ApiKey branch below and the schema comment on
+  // `User.isPlatformAdmin`). Gates the dedicated /api/v1/platform/* routes
+  // only; every normal route stays scoped by `orgId` regardless of this.
+  isPlatformAdmin?: boolean;
 }
 
 const ROLE_SCOPES: Record<string, Scope[]> = {
@@ -186,6 +192,11 @@ export async function resolvePrincipal(request: Request): Promise<Principal> {
       scopes,
       authMethod: "bearer",
       ...(payload.oauthClientId ? { oauthClientId: payload.oauthClientId } : {}),
+      // Never for an OAuth2-issued token (same reasoning as scopes above —
+      // a third-party app's consented-scope token shouldn't inherit
+      // platform-wide reach just because the user who authorized it
+      // happens to be a platform admin).
+      ...(!payload.oauthClientId && user.isPlatformAdmin ? { isPlatformAdmin: true } : {}),
       rateLimit,
     };
   }
@@ -196,6 +207,16 @@ export async function resolvePrincipal(request: Request): Promise<Principal> {
 export function requireScope(principal: Principal, scope: Scope) {
   if (!principal.scopes.includes(scope)) {
     throw new ApiError("insufficient_scope", `Missing required scope: ${scope}`);
+  }
+}
+
+/** Gates the dedicated /api/v1/platform/* routes — see the Principal.isPlatformAdmin doc comment for why this is a separate axis from requireScope(). */
+export function requirePlatformAdmin(principal: Principal) {
+  if (!principal.isPlatformAdmin) {
+    throw new ApiError(
+      "platform_admin_required",
+      "This action requires platform administrator access.",
+    );
   }
 }
 

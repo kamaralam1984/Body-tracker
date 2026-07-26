@@ -18,7 +18,11 @@ export type ApiErrorCode =
   | "insufficient_scope"
   | "ip_not_allowed"
   | "invalid_origin"
-  | "environment_mismatch";
+  | "environment_mismatch"
+  // Thrown by requirePlatformAdmin() (src/server/http/principal.ts) — the
+  // caller authenticated fine, but isn't a platform admin, so none of the
+  // cross-org /api/v1/platform/* routes are available to them.
+  | "platform_admin_required";
 
 const STATUS_BY_CODE: Record<ApiErrorCode, number> = {
   bad_request: 400,
@@ -36,6 +40,7 @@ const STATUS_BY_CODE: Record<ApiErrorCode, number> = {
   ip_not_allowed: 403,
   invalid_origin: 403,
   environment_mismatch: 400,
+  platform_admin_required: 403,
 };
 
 export class ApiError extends Error {

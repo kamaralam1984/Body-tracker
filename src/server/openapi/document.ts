@@ -41,6 +41,10 @@ export const OPENAPI_BASE: Omit<OpenApiDocument, "paths"> = {
         "Real security posture — inactive/expired/near-expiration/compromised keys, failed-auth spikes",
     },
     { name: "Notifications", description: "Real personal in-app notifications" },
+    {
+      name: "Platform Admin",
+      description: "Real cross-org visibility for platform administrators only",
+    },
     { name: "Platform", description: "Health, status, and platform metadata" },
   ],
   components: {

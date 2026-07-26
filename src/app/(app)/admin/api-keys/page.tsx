@@ -1,71 +1,63 @@
 "use client";
 
-import { useMemo } from "react";
-import { Plus } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
+/**
+ * Real cross-org API key admin page — `/api/v1/platform/api-keys` (see
+ * `use-platform-queries.ts`). Deliberately does NOT use the shared
+ * `OrganizationSwitcher`/`useAdminStore.activeOrganizationId` that every
+ * other (still-mock) admin page reads — those pages filter mock rows by
+ * fake org ids that don't correspond to real organizations, so wiring
+ * the shared switcher to real org ids would silently break their
+ * filtering. This page gets its own small, real, page-local org filter
+ * instead.
+ */
+
+import { useState } from "react";
+import { Layers } from "lucide-react";
+import { Select } from "@/components/ui/select";
 import {
-  ApiKeyFilterBar,
-  ApiKeyTable,
-  NoApiKeysEmptyState,
-  NoBillingResultsEmptyState,
-  filterApiKeys,
-  useAdminStore,
-  useApiKeysQuery,
-} from "@/features/admin";
+  usePlatformOrganizationsQuery,
+  usePlatformApiKeysQuery,
+} from "@/features/admin/hooks/use-platform-queries";
+import { PlatformApiKeyTable } from "@/features/admin/components/platform-api-key-table";
 
 export default function AdminApiKeysPage() {
-  const { data: keys, isLoading } = useApiKeysQuery();
-  const apiKeyFilters = useAdminStore((state) => state.apiKeyFilters);
-  const activeOrganizationId = useAdminStore((state) => state.activeOrganizationId);
-  const setCreateApiKeyOpen = useAdminStore((state) => state.setCreateApiKeyOpen);
+  const [orgFilter, setOrgFilter] = useState<string>("all");
+  const { data: organizations } = usePlatformOrganizationsQuery();
+  const { data: keys, isLoading } = usePlatformApiKeysQuery(
+    orgFilter === "all" ? undefined : orgFilter,
+  );
 
-  const scoped = useMemo(() => {
-    const all = keys ?? [];
-    return activeOrganizationId === "all"
-      ? all
-      : all.filter((k) => k.organizationId === activeOrganizationId);
-  }, [keys, activeOrganizationId]);
+  const orgOptions = [
+    { value: "all", label: "All organizations" },
+    ...(organizations ?? []).map((org) => ({ value: org.id, label: org.name })),
+  ];
 
-  const visible = useMemo(() => filterApiKeys(scoped, apiKeyFilters), [scoped, apiKeyFilters]);
+  const count = keys?.length ?? 0;
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
         <div>
           <h2 className="text-foreground text-lg font-semibold">API Keys</h2>
           <p className="text-muted-foreground text-sm">
-            {scoped.length} key{scoped.length === 1 ? "" : "s"}
-            {activeOrganizationId === "all" ? " across the platform" : " in this organization"}
+            {count} key{count === 1 ? "" : "s"}
+            {orgFilter === "all" ? " across every real organization" : " in this organization"} —
+            real data, not a demo.
           </p>
         </div>
-        <Button variant="primary" onClick={() => setCreateApiKeyOpen(true)}>
-          <Plus />
-          Create API key
-        </Button>
+        <div className="flex items-center gap-2">
+          <Layers className="text-muted-foreground size-4" strokeWidth={1.75} />
+          <span className="text-muted-foreground text-sm">Filter by org:</span>
+          <Select
+            options={orgOptions}
+            value={orgFilter}
+            onValueChange={setOrgFilter}
+            className="w-56"
+          />
+        </div>
       </div>
 
-      <ApiKeyFilterBar />
-
-      {isLoading ? (
-        <div className="flex flex-col gap-2">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <Skeleton key={i} className="h-14 w-full rounded-lg" />
-          ))}
-        </div>
-      ) : scoped.length === 0 ? (
-        <NoApiKeysEmptyState
-          action={
-            <Button variant="primary" onClick={() => setCreateApiKeyOpen(true)}>
-              Create your first API key
-            </Button>
-          }
-        />
-      ) : visible.length === 0 ? (
-        <NoBillingResultsEmptyState />
-      ) : (
-        <ApiKeyTable keys={visible} />
-      )}
+      <PlatformApiKeyTable keys={keys ?? []} loading={isLoading} />
     </div>
   );
 }

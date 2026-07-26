@@ -13,6 +13,7 @@ import { oauthPaths } from "@/server/openapi/paths/oauth";
 import { serviceAccountsPaths } from "@/server/openapi/paths/service-accounts";
 import { securityCenterPaths } from "@/server/openapi/paths/security-center";
 import { notificationsPaths } from "@/server/openapi/paths/notifications";
+import { platformAdminPaths } from "@/server/openapi/paths/platform-admin";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +31,7 @@ export function buildOpenApiDocument() {
     serviceAccountsPaths,
     securityCenterPaths,
     notificationsPaths,
+    platformAdminPaths,
   );
 
   // Importing every path fragment above runs each one's Zod schema

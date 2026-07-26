@@ -134,15 +134,24 @@ model Team {
 }
 
 model User {
-  id           String     @id @default(cuid())
-  orgId        String
-  teamId       String?
-  email        String
-  passwordHash String
-  name         String
-  role         Role       @default(member)
-  status       UserStatus @default(active)
-  createdAt    DateTime   @default(now())
+  id              String     @id @default(cuid())
+  orgId           String
+  teamId          String?
+  email           String
+  passwordHash    String
+  name            String
+  role            Role       @default(member)
+  status          UserStatus @default(active)
+  // Orthogonal to `role`: `role`/`ROLE_SCOPES` govern what a user can do
+  // WITHIN their own org (`orgId`); this flag is the only thing that lets
+  // `resolvePrincipal` return a principal that can see across every org,
+  // via the dedicated `/api/v1/platform/*` routes (never the normal
+  // per-org routes, which stay strictly `principal.orgId`-scoped either
+  // way). Bearer-token sessions only — API keys never carry this, so a
+  // leaked machine credential can never reach cross-org data even if its
+  // owner is a platform admin. Seed-only for now (no self-serve grant UI).
+  isPlatformAdmin Boolean    @default(false)
+  createdAt       DateTime   @default(now())
 
   organization            Organization             @relation(fields: [orgId], references: [id], onDelete: Cascade)
   team                    Team?                    @relation(fields: [teamId], references: [id], onDelete: SetNull)

@@ -34,9 +34,6 @@ export * from "./audit-log-table";
 export * from "./admin-log-filter-bar";
 export * from "./log-empty-states";
 
-export * from "./api-key-table";
-export * from "./create-api-key-dialog";
-export * from "./api-key-filter-bar";
 export * from "./billing-overview";
 export * from "./plan-comparison";
 export * from "./invoice-table";
